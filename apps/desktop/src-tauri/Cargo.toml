@@ -1,0 +1,32 @@
+[package]
+name = "sentinel-desktop"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "The Iklwa Sentinel desktop application."
+build = "build.rs"
+
+[lib]
+# Tauri's mobile targets require a cdylib; the desktop binary links the rlib.
+name = "sentinel_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+sentinel-api.workspace = true
+sentinel-common.workspace = true
+sentinel-core.workspace = true
+sentinel-platform.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-build = "2"
+tokio.workspace = true
+tracing.workspace = true
+tracing-appender = "0.2"
+tracing-subscriber.workspace = true
+
+[lints.rust]
+missing_docs = "warn"

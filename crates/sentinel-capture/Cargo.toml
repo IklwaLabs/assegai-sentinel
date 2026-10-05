@@ -1,0 +1,26 @@
+[package]
+name = "sentinel-capture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Packet capture adapters for Iklwa Sentinel: live capture, offline PCAP sources and the bounded ingress queue."
+build = "build.rs"
+
+[dependencies]
+sentinel-common.workspace = true
+sentinel-parser.workspace = true
+sentinel-platform.workspace = true
+bytes.workspace = true
+pcap.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints.rust]
+missing_docs = "warn"

@@ -1,0 +1,24 @@
+[package]
+name = "sentinel-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "SQLite persistence for Iklwa Sentinel: schema migrations, batched writes and retention."
+
+[dependencies]
+sentinel-common.workspace = true
+sentinel-flow.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints.rust]
+missing_docs = "warn"

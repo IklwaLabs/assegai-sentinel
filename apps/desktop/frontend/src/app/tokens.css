@@ -1,0 +1,84 @@
+/**
+ * Sentinel's visual tokens.
+ *
+ * A small, deliberate set. The product is a tool people keep open all day, so the palette is
+ * dark, low-contrast and quiet; colour is reserved for state that matters. One accent, one
+ * scale for surfaces, one for text.
+ *
+ * Rules encoded here rather than repeated in components:
+ * - Severity is never the only signal: it is always paired with a label or an icon.
+ * - Large surfaces are never filled with severity colour; accents appear as 2px borders,
+ *   dots and text.
+ * - Nothing animates that would draw the eye away from changing data.
+ */
+
+:root {
+  /* Surfaces, from furthest back to closest. */
+  --surface-base: #0b0d10;
+  --surface-raised: #111419;
+  --surface-overlay: #161a20;
+  --surface-input: #1b2027;
+
+  --border-subtle: #1e232b;
+  --border-default: #242a33;
+  --border-strong: #333b47;
+
+  /* Text, from most to least prominent. */
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --text-faint: #4b5563;
+
+  /* One brand accent, used sparingly. */
+  --accent: #f97316;
+  --accent-hover: #fb8b3c;
+  --accent-muted: #7c3a10;
+  --accent-contrast: #1a0d03;
+
+  /* Severity. Each has a text, a border and a subtle surface tint, because colour alone
+     is not an accessible signal. */
+  --severity-critical: #ef4444;
+  --severity-critical-surface: #2a1113;
+  --severity-high: #f97362;
+  --severity-high-surface: #2a1512;
+  --severity-medium: #f5b53d;
+  --severity-medium-surface: #2a2110;
+  --severity-low: #6b9fd4;
+  --severity-low-surface: #111a24;
+  --severity-info: #6b7280;
+  --severity-safe: #3f9d6b;
+  --severity-safe-surface: #0f1f18;
+
+  /* Type. Inter first when installed, then the platform's own UI face. */
+  --font-sans: 'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+
+  /* Spacing scale. 4px base, used instead of arbitrary values. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --shadow-overlay: 0 12px 32px rgb(0 0 0 / 45%);
+
+  /* Layout. The sidebar is fixed so the workspace never reflows when it appears. */
+  --sidebar-width: 232px;
+  --topbar-height: 48px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

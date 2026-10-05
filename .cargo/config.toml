@@ -1,0 +1,32 @@
+# Sentinel local development configuration.
+#
+# Crates that link the system capture library need its import library:
+#   * Windows: wpcap.lib, installed by the Npcap SDK
+#   * Linux:   libpcap.so (from libpcap-dev)
+#   * macOS:   the BPF framework, present in the base system
+#
+# Npcap's runtime installs the DLLs into System32 but not the import library, so a machine
+# with Npcap installed and without the SDK cannot link. Two supported ways to handle that:
+#
+# 1. Install the Npcap SDK. This is the documented prerequisite and what CI does; nothing is
+#    needed here.
+# 2. Put a directory containing `wpcap.lib` on the linker search path. Set `IKLWA_PCAP_LIB`
+#    in the environment, or in `config.local.toml`, which is not committed.
+#
+# `sentinel-platform`'s build script reads `IKLWA_PCAP_LIB` and emits the linker search path, so
+# the setting lives in one place and applies to every crate that links libpcap. It is only read
+# when set, so a correctly provisioned machine behaves as if this file did not exist.
+#
+# See DEVELOPMENT.md for the full prerequisite list per platform.
+
+[env]
+# Sentinel's data root for local development. Relative paths resolve against the workspace root,
+# so a clone writes to `<repo>/.sentinel-dev` rather than to the user's real data directory.
+# Tests set IKLWA_HOME themselves, so this only affects manual `cargo run` sessions.
+IKLWA_HOME = { value = ".sentinel-dev", relative = true }
+
+# Machine-specific overrides go in `config.local.toml`, which is git-ignored. Copy
+# `config.local.toml.example` and point it at your wpcap.lib, or just export the variable:
+#
+#   $env:IKLWA_PCAP_LIB = "C:\path\to\npcap-sdk\Lib"   # PowerShell
+#   IKLWA_PCAP_LIB=/usr/lib/x86_64-linux-gnu           # sh

@@ -1,0 +1,53 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+*.ilk
+
+# Per-machine cargo overrides. `config.local.toml.example` is committed; this is not, because
+# it contains absolute paths specific to one developer's machine.
+.cargo/config.local.toml
+
+# Node / frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# Tauri build output
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# Local runtime state (never commit user data or databases)
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/data/
+/logs/
+
+# Local configuration and secrets
+.env
+.env.local
+*.local.toml
+
+# Generated reports / exports
+/reports/
+/exports/
+*.pdf
+
+# Golden PCAP fixtures are committed deliberately; everything else is not
+*.pcapng.tmp
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,6 @@
+# Intentionally free of lint thresholds. Sentinel keeps clippy at its default lint levels and
+# additionally denies the pedantic groups it can uphold without generating noise (see the
+# per-crate `[lints.rust]` sections in Cargo.toml).
+#
+# `msrv` is deliberately unset: the workspace declares `rust-version = "1.95"` in Cargo.toml and
+# clippy reads it from there. Setting it here as well would let the two drift apart silently.

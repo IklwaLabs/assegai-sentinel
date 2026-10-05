@@ -1,0 +1,67 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/sentinel-common",
+    "crates/sentinel-platform",
+    "crates/sentinel-parser",
+    "crates/sentinel-flow",
+    "crates/sentinel-storage",
+    "crates/sentinel-capture",
+    "crates/sentinel-core",
+    "crates/sentinel-api",
+    "apps/cli",
+    "apps/desktop/src-tauri",
+    "tools/fixtures",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# 1.95 rather than the 1.85 floor of edition 2024: the pipeline uses `AtomicUsize::try_update`
+# and `is_none_or`, which are newer than the edition minimum. Declaring the real floor stops
+# cargo and clippy from allowing constructs the declared MSRV cannot build.
+rust-version = "1.95"
+license = "Apache-2.0"
+repository = "https://github.com/IklwaLabs/assegai-sentinel"
+authors = ["IklwaLabs"]
+description = "Local-first network visibility, monitoring and threat detection."
+
+[workspace.dependencies]
+sentinel-common = { path = "crates/sentinel-common", version = "0.1.0" }
+sentinel-platform = { path = "crates/sentinel-platform", version = "0.1.0" }
+sentinel-capture = { path = "crates/sentinel-capture", version = "0.1.0" }
+sentinel-parser = { path = "crates/sentinel-parser", version = "0.1.0" }
+sentinel-flow = { path = "crates/sentinel-flow", version = "0.1.0" }
+sentinel-storage = { path = "crates/sentinel-storage", version = "0.1.0" }
+sentinel-core = { path = "crates/sentinel-core", version = "0.1.0" }
+sentinel-api = { path = "crates/sentinel-api", version = "0.1.0" }
+
+anyhow = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bytes = "1"
+pcap = "1"
+etherparse = "0.14"
+rusqlite = { version = "0.37", features = ["bundled"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "macros"] }
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"
+
+# Capture is the only latency-critical path. Keeping debug assertions and
+# overflow checks off in release avoids hot-path surprises in the packet
+# pipeline, where values are small monotonically increasing counters.
+[profile.release.package.sentinel-capture]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false

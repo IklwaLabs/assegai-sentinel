@@ -1,0 +1,33 @@
+[package]
+name = "sentinel-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Engine orchestration for Iklwa Sentinel: the packet pipeline, engine sessions and the command/event boundary."
+
+[dependencies]
+sentinel-common.workspace = true
+sentinel-capture.workspace = true
+sentinel-flow.workspace = true
+sentinel-parser.workspace = true
+sentinel-platform.workspace = true
+sentinel-storage.workspace = true
+anyhow.workspace = true
+# `rc` so an Arc'd snapshot serializes transparently: one snapshot is cloned per subscriber in
+# process, and serializing a deep copy per subscriber would defeat that.
+serde = { workspace = true, features = ["rc"] }
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+serde_json.workspace = true
+sentinel-parser.workspace = true
+tempfile.workspace = true
+
+[lints.rust]
+missing_docs = "warn"
