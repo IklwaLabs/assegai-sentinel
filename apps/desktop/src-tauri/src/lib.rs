@@ -11,20 +11,22 @@ mod commands;
 mod logging;
 mod state;
 
-use sentinel_api::Frontend;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::state::AppState;
 
-/// Runs the desktop application.
+/// Starts the desktop application.
+///
+/// The engine is started on Tauri's own runtime rather than inside a `#[main]` attribute, so
+/// that this stays an ordinary function a test or a different launcher can call.
 ///
 /// # Errors
 /// Returns an error when the engine cannot start, for example because the data directory is
 /// not writable. The message is already user-facing.
-#[tauri::async_runtime::main]
-pub async fn run() -> Result<(), sentinel_api::ApiError> {
+pub fn run() -> Result<(), sentinel_api::ApiError> {
     logging::init();
-    let state = AppState::new().await?;
+
+    let state = tauri::async_runtime::block_on(AppState::new())?;
 
     tauri::Builder::default()
         .manage(state)
@@ -61,7 +63,10 @@ pub async fn run() -> Result<(), sentinel_api::ApiError> {
             kind: sentinel_api::ApiErrorKind::Engine,
             title: "Sentinel could not open its window".to_string(),
             summary: "The desktop interface failed to start.".to_string(),
-            hint: vec!["Restart Sentinel.".to_string(), "Export your logs before reporting the problem.".to_string()],
+            hint: vec![
+                "Restart Sentinel.".to_string(),
+                "Export your logs before reporting the problem.".to_string(),
+            ],
             details: Some(err.to_string()),
         })?;
 
@@ -73,10 +78,7 @@ async fn subscribe(app: &tauri::AppHandle) {
     let receiver: Option<tokio::sync::mpsc::UnboundedReceiver<sentinel_core::EngineEvent>> = {
         let state = app.state::<AppState>();
         let guard = state.frontend().await;
-        match guard.as_ref() {
-            Some(frontend) => Some(frontend.subscribe()),
-            None => None,
-        }
+        guard.as_ref().map(sentinel_api::Frontend::subscribe)
     };
 
     let Some(mut events) = receiver else {
@@ -105,6 +107,3 @@ fn shutdown(window: &tauri::Window) {
         tracing::info!("engine shut down");
     });
 }
-
-/// A convenience alias so the command layer does not import `Frontend` for one signature.
-pub type EngineClient = Frontend;

@@ -30,8 +30,7 @@ impl AppState {
     /// Returns an error when the data directory or database cannot be opened. The message is
     /// already user-facing, because a desktop app that cannot write anywhere cannot start.
     pub async fn new() -> Result<Self, sentinel_api::ApiError> {
-        let paths = sentinel_platform::AppPaths::discover()
-            .map_err(|err| storage_error(&err))?;
+        let paths = sentinel_platform::AppPaths::discover().map_err(|err| storage_error(&err))?;
         paths.ensure().map_err(|err| storage_error(&err))?;
 
         let settings = Arc::new(SettingsStore::new(paths.config_file.clone()));
@@ -66,14 +65,14 @@ impl AppState {
     ///
     /// # Errors
     /// Returns [`shutting_down`] when the engine has already been torn down.
-    pub async fn require_frontend(&self) -> Result<MutexGuard<'_, Frontend>, sentinel_api::ApiError> {
+    pub async fn require_frontend(
+        &self,
+    ) -> Result<MutexGuard<'_, Option<Frontend>>, sentinel_api::ApiError> {
         let guard = self.frontend.lock().await;
-        match guard.as_ref() {
-            Some(_) => Ok(MutexGuard::map(guard, |slot| {
-                slot.as_ref().expect("the slot was just checked to be present")
-            })),
-            None => Err(shutting_down()),
+        if guard.is_none() {
+            return Err(shutting_down());
         }
+        Ok(guard)
     }
 
     /// The engine client without the lifetime dance, for commands that only need to send one
@@ -86,13 +85,8 @@ impl AppState {
         command: sentinel_api::types::Command,
     ) -> Result<sentinel_api::types::CommandResult, sentinel_api::ApiError> {
         let guard = self.require_frontend().await?;
-        guard.send(command).await
-    }
-
-    /// Reads the configuration file.
-    #[must_use]
-    pub fn load_settings(&self) -> sentinel_platform::settings::LoadedConfig {
-        self.settings.load()
+        let frontend = guard.as_ref().ok_or_else(shutting_down)?;
+        frontend.send(command).await
     }
 
     /// Persists configuration.
@@ -100,7 +94,9 @@ impl AppState {
     /// # Errors
     /// Returns a storage error when the file cannot be written.
     pub fn save_settings(&self, config: &AppConfig) -> Result<(), sentinel_api::ApiError> {
-        self.settings.save(config).map_err(|err| storage_error(&err))
+        self.settings
+            .save(config)
+            .map_err(|err| storage_error(&err))
     }
 
     /// The application directories, for display in Settings.

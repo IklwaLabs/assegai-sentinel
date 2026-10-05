@@ -4,17 +4,21 @@
 //! JSON boundary. No analysis, no filtering, no caching: if a command needed any of those, the
 //! logic belongs in the engine and the command would disappear.
 
-use sentinel_api::types::{AppConfig, Capabilities, Command, CommandResult, EngineSnapshot, NetworkInterface, SessionState};
-use tauri::{AppHandle, Emitter, State};
+use sentinel_api::types::{
+    AppConfig, Capabilities, Command, CommandResult, EngineSnapshot, NetworkInterface, SessionState,
+};
+use tauri::State;
 
-use crate::state::{AppState, shutting_down};
+use crate::state::AppState;
 
 /// Event name for engine events pushed to the window.
 pub const EVENT_NAME: &str = "sentinel://event";
 
 /// Lists network interfaces available for monitoring.
 #[tauri::command]
-pub async fn list_interfaces(state: State<'_, AppState>) -> Result<Vec<NetworkInterface>, sentinel_api::ApiError> {
+pub async fn list_interfaces(
+    state: State<'_, AppState>,
+) -> Result<Vec<NetworkInterface>, sentinel_api::ApiError> {
     match state.send(Command::ListInterfaces).await? {
         CommandResult::Interfaces { interfaces } => Ok(interfaces),
         _ => Err(unexpected("listInterfaces")),
@@ -23,7 +27,9 @@ pub async fn list_interfaces(state: State<'_, AppState>) -> Result<Vec<NetworkIn
 
 /// Reports what packet capture is possible in this process.
 #[tauri::command]
-pub async fn capabilities(state: State<'_, AppState>) -> Result<Capabilities, sentinel_api::ApiError> {
+pub async fn capabilities(
+    state: State<'_, AppState>,
+) -> Result<Capabilities, sentinel_api::ApiError> {
     // Capabilities are answered by the platform layer directly rather than through a session, so
     // they stay available even when the engine is busy or has stopped.
     match state.send(Command::Capabilities).await? {
@@ -45,17 +51,16 @@ pub async fn capabilities(state: State<'_, AppState>) -> Result<Capabilities, se
 }
 
 /// Starts monitoring an interface.
+///
+/// Events are forwarded for the whole process lifetime rather than per session, so starting a
+/// session does not need to touch the subscription.
 #[tauri::command]
 pub async fn start_monitoring(
-    app: AppHandle,
     state: State<'_, AppState>,
     interface_id: String,
 ) -> Result<SessionState, sentinel_api::ApiError> {
     match state.send(Command::Start { interface_id }).await? {
-        CommandResult::Started { state } => {
-            forward_events(&app, &state).await;
-            Ok(state)
-        }
+        CommandResult::Started { state } => Ok(state),
         _ => Err(unexpected("startMonitoring")),
     }
 }
@@ -70,22 +75,20 @@ pub async fn stop_monitoring(state: State<'_, AppState>) -> Result<(), sentinel_
 /// Analyses a PCAP file offline.
 #[tauri::command]
 pub async fn analyze_capture(
-    app: AppHandle,
     state: State<'_, AppState>,
     path: String,
 ) -> Result<SessionState, sentinel_api::ApiError> {
     match state.send(Command::Analyze { path }).await? {
-        CommandResult::Started { state } => {
-            forward_events(&app, &state).await;
-            Ok(state)
-        }
+        CommandResult::Started { state } => Ok(state),
         _ => Err(unexpected("analyzeCapture")),
     }
 }
 
 /// Fetches a full snapshot.
 #[tauri::command]
-pub async fn get_snapshot(state: State<'_, AppState>) -> Result<EngineSnapshot, sentinel_api::ApiError> {
+pub async fn get_snapshot(
+    state: State<'_, AppState>,
+) -> Result<EngineSnapshot, sentinel_api::ApiError> {
     match state.send(Command::Snapshot).await? {
         CommandResult::Snapshot { snapshot } => Ok(*snapshot),
         _ => Err(unexpected("getSnapshot")),
@@ -96,7 +99,7 @@ pub async fn get_snapshot(state: State<'_, AppState>) -> Result<EngineSnapshot, 
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<AppConfig, sentinel_api::ApiError> {
     match state.send(Command::GetConfig).await? {
-        CommandResult::Config { config } => Ok(*config),
+        CommandResult::Config { config } => Ok(config),
         _ => Err(unexpected("getSettings")),
     }
 }
@@ -110,7 +113,7 @@ pub async fn save_settings(
     // Applied to the running engine first: an invalid value is rejected there, before it can
     // reach the settings file and break the next start-up.
     let applied = match state.send(Command::SetConfig { config }).await? {
-        CommandResult::Config { config } => *config,
+        CommandResult::Config { config } => config,
         _ => return Err(unexpected("saveSettings")),
     };
     state.save_settings(&applied)?;
@@ -131,52 +134,56 @@ pub async fn get_diagnostics(
     })
 }
 
-/// Subscribes the window to engine events for as long as the session lasts.
-///
-/// The engine publishes aggregate snapshots and state changes; the window renders them. This
-/// task holds no state of its own and exits when the app does.
-async fn forward_events(app: &AppHandle, _state: &SessionState) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        // Subscribing through the frontend requires the guard, which is held by the caller for
-        // the duration of its command. A second short lock is taken here so the subscription
-        // outlives that command: otherwise the window would receive nothing after start-up.
-        let receiver = {
-            let frontend = app.state::<AppState>().frontend().await;
-            match frontend.as_ref() {
-                Some(frontend) => Some(frontend.subscribe()),
-                None => None,
-            }
-        };
-
-        let Some(mut events) = receiver else {
-            tracing::warn!("cannot subscribe to engine events: the engine is not running");
-            return;
-        };
-
-        while let Some(event) = events.recv().await {
-            if let Err(err) = app.emit(EVENT_NAME, &event) {
-                // A closed window is normal on quit, not an error worth escalating.
-                tracing::debug!(error = %err, "could not emit an engine event to the window");
-                break;
-            }
-        }
-    });
-}
-
 /// The error for a response the engine should not have produced.
+///
+/// Reaching this means the engine and this layer disagree about the contract, which is a bug
+/// rather than a user error — so the message says so instead of suggesting a retry.
 fn unexpected(what: &str) -> sentinel_api::ApiError {
     sentinel_api::ApiError {
         kind: sentinel_api::ApiErrorKind::Engine,
         title: "Sentinel received an unexpected response".to_string(),
         summary: format!("The engine did not answer `{what}` with the expected result."),
-        hint: vec!["This is a bug in Sentinel.".to_string(), "Export your logs before reporting it.".to_string()],
+        hint: vec![
+            "This is a bug in Sentinel.".to_string(),
+            "Export your logs before reporting it.".to_string(),
+        ],
         details: Some(format!("command: {what}")),
     }
 }
 
-/// Returns the shutting-down error, for callers outside the command layer.
-#[must_use]
-pub fn engine_gone() -> sentinel_api::ApiError {
-    shutting_down()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_unexpected_response_says_it_is_a_bug() {
+        let err = unexpected("getSnapshot");
+        assert_eq!(err.kind, sentinel_api::ApiErrorKind::Engine);
+        // Retrying cannot help, so the guidance must not suggest it.
+        assert!(err.hint.iter().any(|hint| hint.contains("bug")));
+        assert!(
+            !err.hint
+                .iter()
+                .any(|hint| hint.contains("Retry") || hint.contains("retry"))
+        );
+        assert!(
+            err.details
+                .as_deref()
+                .is_some_and(|details| details.contains("getSnapshot"))
+        );
+    }
+
+    #[test]
+    fn a_capability_failure_names_the_driver_rather_than_the_engine() {
+        // The window branches on `kind` to decide whether to offer install help, so the
+        // classification is part of the contract rather than an implementation detail.
+        let err = sentinel_api::ApiError {
+            kind: sentinel_api::ApiErrorKind::Driver,
+            title: "Capture capabilities are unavailable".to_string(),
+            summary: "Sentinel could not determine what this machine can capture.".to_string(),
+            hint: vec!["Check that a packet capture driver is installed.".to_string()],
+            details: None,
+        };
+        assert_ne!(err.kind, sentinel_api::ApiErrorKind::Engine);
+    }
 }
