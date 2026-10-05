@@ -81,7 +81,12 @@ jobs:
           "IKLWA_PCAP_LIB=$sdk\Lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build
-        run: cargo build --workspace --locked
+        # `--locked` plus the explicit feature list: `custom-protocol` is what makes the
+        # desktop binary load its embedded assets instead of the dev-server URL, and a build
+        # without it produces a window that silently shows nothing.
+        run: |
+          cargo build --workspace --locked
+          cargo build --release -p sentinel-desktop --features custom-protocol --locked
 
       # The suite does not need a capture driver or privileges: every packet-path test runs
       # through generated frames and the offline source. That is deliberate, and it means CI

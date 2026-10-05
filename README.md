@@ -81,9 +81,12 @@ cargo run -p sentinel-cli -- interfaces
 cargo run -p sentinel-cli -- capture --duration 30
 cargo run -p sentinel-cli -- analyze fixtures/demo-traffic.pcap
 
-# Desktop application
+# Desktop application. The custom-protocol feature is required: without it the binary
+# opens a black window, because it looks for the Vite dev server instead of the
+# assets embedded in the executable.
 cd apps/desktop/frontend && npm install
-cargo run -p sentinel-desktop
+cargo build --release -p sentinel-desktop --features custom-protocol
+./target/release/sentinel-desktop
 ```
 
 Full prerequisites, including how to build on a machine that has Npcap's runtime but not its

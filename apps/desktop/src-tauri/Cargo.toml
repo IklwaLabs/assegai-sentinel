@@ -21,14 +21,25 @@ sentinel-core.workspace = true
 sentinel-platform.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2", features = [] }
 tokio.workspace = true
 tracing.workspace = true
 tracing-appender = "0.2"
 tracing-subscriber.workspace = true
 
+[features]
+# Enabled by `tauri build` and by any release build. Without it the window loads `devUrl`
+# from tauri.conf.json instead of the assets embedded in the binary, so a release build
+# started outside `tauri dev` shows a blank window with no error. The debug default is the
+# opposite: with no dev server running there is nothing to show either.
+default = []
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies.tauri]
+version = "2"
+features = []
+
 [build-dependencies]
-tauri-build = "2"
+tauri-build = { version = "2", features = [] }
 
 [lints.rust]
 missing_docs = "warn"

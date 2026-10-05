@@ -67,12 +67,41 @@ cargo run -p sentinel-cli -- export --json --limit 100
 
 # Desktop
 cd apps/desktop/frontend && npm install && npm run typecheck && npm run build
-cargo run -p sentinel-desktop
+cargo build --release -p sentinel-desktop --features custom-protocol
+./target/release/sentinel-desktop
 ```
 
 `cargo fmt` needs nightly for the `imports_granularity` and `group_imports` options in
 `rustfmt.toml`. On stable it warns and applies the remaining options; that is fine, and CI runs
 the stable subset.
+
+### `custom-protocol` is not optional
+
+`cargo build -p sentinel-desktop` produces a binary that opens a **black window**. No error, no
+log line, just an empty window — because the build lacked Tauri's `custom-protocol` feature and
+therefore loaded `devUrl` (`http://localhost:1420`) instead of the assets embedded in the
+executable. With no Vite dev server running, that page never resolves.
+
+Use `tauri dev` for development, and `--features custom-protocol` for anything you intend to
+run or ship. `tauri build` passes the feature itself.
+
+### Diagnosing a blank window
+
+If the window is black or empty, the frontend failed to load. Rather than guess, ask WebView2
+what URL it actually fetched:
+
+```powershell
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=9333"
+.\target\release\sentinel-desktop.exe
+
+# In a second shell:
+(Invoke-WebRequest http://127.0.0.1:9333/json/list).Content
+```
+
+`http://localhost:1420/` means `custom-protocol` is missing. A `tauri://localhost/` URL with a
+blank page means a console error, and commands failing with an unrecognised error almost always
+mean a missing entry in `capabilities/default.json` — Tauri 2 denies every capability that is
+not explicitly granted.
 
 ## Layout and where code belongs
 

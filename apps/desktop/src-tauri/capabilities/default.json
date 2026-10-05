@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for Sentinel's main window. Tauri 2 denies every capability that is not listed here, so this file is what makes the interface able to talk to the engine at all.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-title",
+
+    {
+      "identifier": "core:app:default",
+      "description": "Read the app's own name, version and identifier for the About panel. Read-only, and it exposes nothing about the host beyond what the window title already shows."
+    }
+  ]
+}
