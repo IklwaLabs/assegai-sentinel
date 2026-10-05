@@ -22,11 +22,13 @@ sentinel-platform.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }
-tauri-build = "2"
 tokio.workspace = true
 tracing.workspace = true
 tracing-appender = "0.2"
 tracing-subscriber.workspace = true
+
+[build-dependencies]
+tauri-build = "2"
 
 [lints.rust]
 missing_docs = "warn"

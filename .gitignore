@@ -4,9 +4,9 @@
 *.pdb
 *.ilk
 
-# Per-machine cargo overrides. `config.local.toml.example` is committed; this is not, because
-# it contains absolute paths specific to one developer's machine.
-.cargo/config.local.toml
+# Per-machine cargo state. `.cargo/config.toml` is committed because it holds no
+# machine-specific paths; anything that does belongs in the `IKLWA_PCAP_LIB` environment
+# variable instead, which is why nothing here needs ignoring.
 
 # Node / frontend
 node_modules/
