@@ -81,11 +81,14 @@ impl UserFacing for PcapFileError {
             .with_hint("Confirm the file was not renamed or truncated during transfer.")
             .with_hint("Only classic PCAP is read directly. Convert PCAPNG with: editcap -F pcap in.pcapng out.pcap")
             .with_details(format!("unrecognized magic number 0x{magic:08x}")),
-            PcapFileError::UnsupportedFormat(name) => UserMessage::new(
-                "Unsupported capture format",
-                format!("Sentinel reads classic PCAP files; this file is {name}."),
-            )
-            .with_hint("Convert it first: editcap -F pcap input.pcapng output.pcap  (editcap ships with Wireshark)"),
+            // The conversion hint is shared with the guidance module rather than duplicated: two
+            // slightly different `editcap` invocations is one that does not work.
+            PcapFileError::UnsupportedFormat(name) => {
+                sentinel_platform::guidance::unsupported_file_format_message(UserMessage::new(
+                    "Unsupported capture format",
+                    format!("Sentinel reads classic PCAP files; this file is {name}."),
+                ))
+            }
             PcapFileError::Io(details) => UserMessage::new(
                 "Sentinel could not open this capture file",
                 "The file may be missing, locked by another application, or outside your permission scope.",

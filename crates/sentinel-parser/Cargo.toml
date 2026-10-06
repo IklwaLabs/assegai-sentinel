@@ -10,6 +10,10 @@ description = "Packet decoding for Iklwa Sentinel: L2-L4 normalization plus a de
 
 [dependencies]
 sentinel-common.workspace = true
+# Only for the user-facing conversion hint. The decoder itself stays pure: `sentinel-parser`
+# depends on `sentinel-platform`, never the reverse, which is the direction the crate map in
+# ARCHITECTURE.md shows.
+sentinel-platform.workspace = true
 etherparse.workspace = true
 thiserror.workspace = true
 

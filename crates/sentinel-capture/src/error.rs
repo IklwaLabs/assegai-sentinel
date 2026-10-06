@@ -64,60 +64,43 @@ impl From<sentinel_parser::PcapFileError> for CaptureError {
 impl UserFacing for CaptureError {
     fn user_message(&self) -> UserMessage {
         match self {
-            CaptureError::InterfaceUnavailable { interface, details } => UserMessage::new(
-                "Sentinel could not open this network interface",
-                format!("The interface '{interface}' was not available when capture started."),
-            )
-            .with_hint("It may have been renamed or disconnected since the list was shown.")
-            .with_hint("Run `sentinel interfaces` to see the current list, then try again.")
-            .with_details(details.clone()),
-
-            CaptureError::PermissionDenied { details } => {
-                let mut message = UserMessage::new(
-                    "Packet capture permission is missing",
-                    "Sentinel needs elevated privileges to read network packets, and this process does not have them.",
+            CaptureError::InterfaceUnavailable { interface, details } => {
+                let mut message = sentinel_platform::guidance::interface_unavailable_message(
+                    UserMessage::new(
+                        "Sentinel could not open this network interface",
+                        format!("The interface '{interface}' was not available when capture started."),
+                    ),
                 );
-                if cfg!(target_os = "windows") {
-                    message.hint.push(
-                        "Close Sentinel and reopen it from an elevated PowerShell prompt: \
-                         right-click PowerShell, choose Run as administrator, then run Sentinel again."
-                            .to_string(),
-                    );
-                    message.hint.push(
-                        "Verify that Npcap is installed and that you allowed the driver-only or full installation."
-                            .to_string(),
-                    );
-                } else if cfg!(target_os = "linux") {
-                    message.hint.push(
-                        "Grant packet capability once: \
-                         sudo setcap cap_net_raw,cap_net_admin=eip $(which sentinel)"
-                            .to_string(),
-                    );
-                    message.hint.push("Or add your user to the `pcap` group and start Sentinel again.".to_string());
-                } else if cfg!(target_os = "macos") {
-                    message.hint.push("Run Sentinel elevated: sudo sentinel capture".to_string());
-                    message.hint.push(
-                        "On macOS 13 or newer you can instead grant access to /dev/bpf* to your user."
-                            .to_string(),
-                    );
-                }
+                message
+                    .hint
+                    .push("It may have been renamed or disconnected since the list was shown.".to_string());
+                message
+                    .hint
+                    .push("Run `sentinel interfaces` to see the current list, then try again.".to_string());
                 message.with_details(details.clone())
             }
 
+            // The platform-specific remedies come from sentinel-platform rather than from a
+            // `cfg` here. Two copies of "how do I get permission on Linux" is two answers to
+            // maintain, and only one of them would get updated.
+            CaptureError::PermissionDenied { details } => sentinel_platform::guidance::capture_permission_message(
+                UserMessage::new(
+                    "Packet capture permission is missing",
+                    "Sentinel needs elevated privileges to read network packets, and this process does not have them.",
+                ),
+            )
+            .with_details(details.clone()),
+
             CaptureError::DriverUnavailable { details } => {
-                let mut message = UserMessage::new(
-                    "The packet capture driver is not available",
-                    "Sentinel relies on a system capture driver that is not installed on this machine.",
+                let mut message = sentinel_platform::guidance::missing_driver_message(
+                    UserMessage::new(
+                        "The packet capture driver is not available",
+                        "Sentinel relies on a system capture driver that is not installed on this machine.",
+                    ),
                 );
-                if cfg!(target_os = "windows") {
-                    message.hint.push("Install Npcap from https://npcap.com, then restart Windows.".to_string());
-                } else if cfg!(target_os = "linux") {
-                    message.hint
-                        .push("Install libpcap: sudo apt install libpcap0.8 (Debian/Ubuntu).".to_string());
-                } else if cfg!(target_os = "macos") {
-                    message.hint.push("Install libpcap: brew install libpcap, or xcode-select --install.".to_string());
-                }
-                message.hint.push("After installing, run `sentinel doctor` to verify.".to_string());
+                message
+                    .hint
+                    .push("After installing, run `sentinel doctor` to verify.".to_string());
                 message.with_details(details.clone())
             }
 

@@ -9,11 +9,36 @@ doctor` reports all of this for the machine you are on.
 | --- | --- | --- | --- | --- |
 | Capture driver | Npcap (WinPcap compatible) | libpcap | BPF framework | `Tun2Socks` |
 | Privilege needed | Administrator | `CAP_NET_RAW` or root | `access_bpcap` group | app-private VPN |
-| Live capture | Yes | Yes | Yes | Planned |
+| Live capture | Yes | Yes | Yes | Not implemented |
 | Interface enumeration | Yes | Yes | Yes | Yes |
 | PCAP analysis | Yes | Yes | Yes | Yes |
 | Loopback capture | Dedicated adapter | Yes | Limited | N/A |
 | Desktop app | Yes | Yes | Yes | No |
+| Release artifact | `.exe`, `.msi` | `.deb`, `.AppImage` | `.dmg`, `.app` | `.apk` |
+
+## Getting a build
+
+Releases are cut by `.github/workflows/release.yml`, which builds each platform on its own
+runner. That is deliberate: a Tauri bundle needs the *host* platform's webview, packaging and
+code-signing tools, and macOS cannot be built from Windows or Linux at all. Adding Rust targets is
+easy; adding the surrounding toolchain is not.
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0    # triggers the release matrix
+```
+
+Or dispatch the workflow manually for an existing tag.
+
+To build one platform yourself, see the table above for its capture driver and
+[DEVELOPMENT.md](../DEVELOPMENT.md) for the shared prerequisites.
+
+Two build details worth knowing:
+
+- **macOS bundles are unsigned.** Gatekeeper will refuse them until the user right-clicks and
+  chooses Open, or clears the quarantine flag. Notarisation needs an Apple developer account.
+- **Android ships as an APK, not an AAB.** An AAB can only be uploaded through Play Console and
+  cannot be side-loaded, which makes it useless for verifying a build. Live capture is not
+  implemented, so that build ships the interface and offline PCAP analysis only.
 
 Only `crates/sentinel-platform` contains `cfg(target_os)`. Every other crate consumes normalized
 types, which is why the pipeline, decoder, flow engine and storage are identical on all of them.
@@ -73,8 +98,9 @@ network monitoring, so Sentinel deprioritises it when choosing an interface auto
 
 ## Android
 
-**Status.** Interface enumeration and PCAP analysis work. Live capture is planned and is the main
-outstanding platform work.
+**Status.** Interface enumeration and PCAP analysis work. Live capture is **not implemented** and
+is the main outstanding platform work; the release build reports it as unavailable rather than
+failing at runtime.
 
 **Approach.** `Tun2Socks`. The app runs a userspace TCP/IP stack over a VPN slot the app itself
 owns, which routes traffic through Sentinel's own capture point. This is the only approach that

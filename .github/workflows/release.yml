@@ -1,0 +1,352 @@
+name: Release
+
+# Builds every platform Sentinel supports and attaches the artifacts to the release.
+#
+# Cross-compiling is not attempted from one machine. Rust's targets are cheap to add, but a
+# Tauri bundle needs the *host* platform's webview, code-signing and packaging tools, and macOS
+# in particular cannot be built from Windows or Linux at all. So each platform is built on its
+# own runner, which is also the only honest way to test that a build works there.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build and publish a release for"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # A release is only cut once every platform has passed its own tests. Building first and
+  # discovering afterwards that Linux was already broken wastes the whole matrix.
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: verify-${{ matrix.os }}
+
+      - name: Install libpcap (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
+      - name: Install Npcap SDK (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sdk = "$env:RUNNER_TEMP\npcap-sdk"
+          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.83.zip -OutFile "$env:RUNNER_TEMP\sdk.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\sdk.zip" -DestinationPath $sdk
+          "IKLWA_PCAP_LIB=$sdk\Lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  linux:
+    name: Build Linux
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-linux
+
+      # WebKitGTK and the AppIndicator libraries are what the Tauri webview links against.
+      # Missing them produces a link error naming a dozen transitive packages, so they are
+      # installed explicitly rather than discovered.
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libpcap-dev \
+            build-essential \
+            curl \
+            file \
+            libssl-dev \
+            libayatana-appindicator3-dev
+
+      - name: Build the CLI for x86_64
+        run: cargo build --release -p sentinel-cli --locked
+        env:
+          IKLWA_HOME: .sentinel-ci
+
+      - name: Build and bundle the desktop app
+        working-directory: apps/desktop/frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Bundle deb and AppImage
+        run: |
+          npx --prefix apps/desktop/frontend tauri build \
+            --config apps/desktop/src-tauri/tauri.conf.json \
+            --bundles deb,appimage
+        env:
+          IKLWA_HOME: .sentinel-ci
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp target/release/sentinel artifacts/sentinel-x86_64-unknown-linux-gnu
+          cp target/release/build/sentinel-*/out/*.deb artifacts/ 2>/dev/null || true
+          cp target/release/build/sentinel-*/out/*.AppImage artifacts/ 2>/dev/null || true
+          # A tarball keeps the AppImage executable bit, which `cp` into an artifact upload
+          # does not always preserve.
+          for f in target/release/build/sentinel-*/out/*.AppImage; do
+            [ -e "$f" ] && tar czf "artifacts/$(basename "$f").tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
+          done
+          ls -la artifacts/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-linux-x86_64
+          path: artifacts/
+
+  macos:
+    name: Build macOS
+    needs: verify
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-macos
+
+      - name: Build the CLI
+        run: cargo build --release -p sentinel-cli --locked
+        env:
+          IKLWA_HOME: .sentinel-ci
+
+      - name: Build the frontend
+        working-directory: apps/desktop/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Bundle app and dmg
+        run: |
+          npx --prefix apps/desktop/frontend tauri build \
+            --config apps/desktop/src-tauri/tauri.conf.json \
+            --bundles app,dmg
+        env:
+          IKLWA_HOME: .sentinel-ci
+
+      # Unsigned macOS builds are quarantined by Gatekeeper on open, so the checksum is
+      # published alongside the file: a user who verifies it can clear the quarantine flag
+      # themselves.
+      - name: Package artifacts
+        run: |
+          mkdir -p artifacts
+          ditto -c -k --keepParent "target/release/bundle/macos/Sentinel.app" "artifacts/Sentinel-macos-universal.zip"
+          cp "target/release/bundle/dmg/"*.dmg artifacts/ 2>/dev/null || true
+          cd artifacts && shasum -a 256 * > SHA256SUMS.txt && cat SHA256SUMS.txt
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-macos
+          path: artifacts/
+
+  windows:
+    name: Build Windows
+    needs: verify
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows
+
+      - name: Install Npcap SDK
+        shell: pwsh
+        run: |
+          $sdk = "$env:RUNNER_TEMP\npcap-sdk"
+          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.83.zip -OutFile "$env:RUNNER_TEMP\sdk.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\sdk.zip" -DestinationPath $sdk
+          "IKLWA_PCAP_LIB=$sdk\Lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build the CLI
+        run: cargo build --release -p sentinel-cli --locked
+
+      - name: Build the frontend
+        working-directory: apps/desktop/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Bundle NSIS and MSI
+        run: |
+          npx --prefix apps/desktop/frontend tauri build `
+            --config apps/desktop/src-tauri/tauri.conf.json `
+            --bundles nsis,msi
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Copy-Item target/release/sentinel.exe artifacts/
+          Copy-Item target/release/bundle/nsis/*.exe artifacts/ -ErrorAction SilentlyContinue
+          Copy-Item target/release/bundle/msi/*.msi artifacts/ -ErrorAction SilentlyContinue
+          Get-ChildItem artifacts | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-windows-x86_64
+          path: artifacts/
+
+  # Android is built as an APK rather than an app bundle: an AAB is what Play Store wants, but
+  # it can only be uploaded through Play Console and cannot be side-loaded for verification,
+  # which makes it useless as a CI artifact.
+  android:
+    name: Build Android
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK and build tools
+        run: |
+          sdkmanager "ndk;26.1.10909125" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$ANDROID_SDK_ROOT/ndk_home"
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Initialise the Android project
+        run: npx --prefix apps/desktop/frontend tauri android init --ci
+
+      # Live capture on Android needs a userspace TCP/IP stack over a VPN slot, which is not
+      # implemented. The APK therefore ships the interface and offline PCAP analysis, and
+      # reports capture as unsupported rather than failing at runtime.
+      - name: Build the APK
+        run: |
+          npx --prefix apps/desktop/frontend tauri android build \
+            --config apps/desktop/src-tauri/tauri.conf.json \
+            --apk
+        env:
+          IKLWA_HOME: .sentinel-ci
+
+      - name: Collect the APK
+        run: |
+          mkdir -p artifacts
+          find apps/desktop/src-tauri/gen/android -name "*.apk" -exec cp {} artifacts/ \;
+          ls -la artifacts/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-android
+          path: artifacts/
+
+  release:
+    name: Publish release
+    needs: [linux, macos, windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect every artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List what will be published
+        run: find artifacts -type f | sort
+
+      - name: Create the release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          draft: true
+          generate_release_notes: true
+          files: artifacts/**/*
+          body: |
+            ## Iklwa Sentinel ${{ github.event.inputs.tag || github.ref_name }}
+
+            Local-first network visibility and threat detection. No account, no cloud, no
+            telemetry: nothing is sent anywhere.
+
+            | Platform | Artifact | Install |
+            | --- | --- | --- |
+            | Windows | `.exe` (NSIS), `.msi` | Run the installer. Capture needs an elevated process. |
+            | Linux | `.deb`, `.AppImage` | `sudo dpkg -i sentinel_*.deb`, or `chmod +x` the AppImage. |
+            | macOS | `.dmg`, `.app` | Unsigned. See the checksum note below. |
+            | Android | `.apk` | Sideload with developer mode enabled. Offline analysis only. |
+
+            ### Verifying a download
+
+            macOS and Linux artifacts ship a `SHA256SUMS.txt`. Windows and Android do not, because
+            their release pipelines already authenticate the download over TLS.
+
+            ### Running unsigned macOS builds
+
+            These are not notarised, so Gatekeeper will refuse to open them. Either right-click the
+            app and choose Open, or:
+
+            ```
+            xattr -d com.apple.quarantine /Applications/Sentinel.app
+            ```
+
+            ### Capture permissions
+
+            | Platform | Requirement |
+            | --- | --- |
+            | Windows | Administrator. Install [Npcap](https://npcap.com/). |
+            | Linux | `sudo setcap cap_net_raw,cap_net_admin=eip <path to sentinel>` |
+            | macOS | Membership of the `access_bpcap` group, or run with `sudo`. |
+            | Android | Not implemented. The APK analyses PCAP files only. |
+
+            Offline PCAP analysis needs no privileges on any platform:
+
+            ```
+            sentinel analyze capture.pcap
+            ```

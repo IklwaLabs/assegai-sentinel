@@ -14,6 +14,7 @@
 
 pub mod capabilities;
 pub mod error;
+pub mod guidance;
 pub mod os;
 pub mod paths;
 pub mod settings;
