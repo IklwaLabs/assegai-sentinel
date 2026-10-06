@@ -15,10 +15,13 @@ runs:
       run: |
         set -euo pipefail
         sudo apt-get update
+
+        # Only the ayatana fork, never both tray libraries: libayatana-appindicator3-1 declares
+        # a hard Conflict on libappindicator3-1, so asking for the two -dev packages together is
+        # an unsatisfiable request and apt exits 100 having installed nothing.
         sudo apt-get install -y --no-install-recommends \
           libpcap-dev \
           libwebkit2gtk-4.1-dev \
-          libappindicator3-dev \
           libayatana-appindicator3-dev \
           librsvg2-dev \
           libxdo-dev \
