@@ -236,7 +236,16 @@ impl LiveCapture {
                             idle_ms = 0;
                             stats.received.fetch_add(1, Ordering::Relaxed);
                             let raw = RawPacket::new(
-                                timestamp_from_parts(i64::from(packet.header.ts.tv_sec), i64::from(packet.header.ts.tv_usec)),
+                                // `as` rather than `From`: `pcap`'s timestamp fields are
+                                // `libc::time_t` and `libc::suseconds_t`, which are `i32` on
+                                // Windows and `i64` everywhere else. `i64::from` compiles on
+                                // Windows and is a useless conversion on Linux, which clippy
+                                // rejects -- so the one spelling that is correct on both
+                                // platforms is the cast.
+                                timestamp_from_parts(
+                                    packet.header.ts.tv_sec as i64,
+                                    packet.header.ts.tv_usec as i64,
+                                ),
                                 packet.header.caplen,
                                 packet.header.len,
                                 Bytes::copy_from_slice(packet.data),
