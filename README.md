@@ -59,6 +59,22 @@ process attribution, device inventory, DNS correlation, and desktop capture-file
 Dependencies point inward: `platform` and `common` know about nothing; `api` knows about the
 engine; the apps know about `api`. Nothing depends on an app.
 
+## Documentation
+
+**[`docs/Sentinel-Reference.pdf`](docs/Sentinel-Reference.pdf)** is the whole product in one
+document — architecture, how to run it, how to control it, troubleshooting. Start there.
+
+| Document | Covers |
+| --- | --- |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Crate map, concurrency, storage, design decisions |
+| [ROADMAP.md](ROADMAP.md) | What is built, what is next |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Prerequisites, running, testing, conventions |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | What a contribution should look like |
+| [SECURITY.md](SECURITY.md) | What Sentinel does with your data, and how to report a vulnerability |
+| [docs/PACKET_PIPELINE.md](docs/PACKET_PIPELINE.md) | How a frame becomes a connection, and where data can be lost |
+| [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | The detection design, and why it is not implemented yet |
+| [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) | Per-platform drivers, privileges and limitations |
+
 ## Building from source
 
 You need Rust 1.95 or newer, Node.js 20 or newer, and a packet capture driver:

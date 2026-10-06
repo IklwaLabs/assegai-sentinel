@@ -38,10 +38,18 @@ apps/desktop/src-tauri/gen/
 # Generated reports / exports
 /reports/
 /exports/
+
+# Generated PDFs are ignored, with one exception: the product reference is committed alongside
+# its generator so a reader who clones the repository has the document without needing Python.
 *.pdf
+!docs/Sentinel-Reference.pdf
 
 # Golden PCAP fixtures are committed deliberately; everything else is not
 *.pcapng.tmp
+
+# A generated PCAP is committed deliberately too, so CI can prove the generator is
+# reproducible by regenerating it and diffing.
+!fixtures/demo-traffic.pcap
 
 # Editors / OS
 .idea/
