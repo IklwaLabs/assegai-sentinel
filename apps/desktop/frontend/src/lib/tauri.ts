@@ -8,7 +8,17 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import type { ApiError, ApiErrorKind, AppConfig, Capabilities, Diagnostics, EngineEvent, EngineSnapshot, NetworkInterface, SessionState } from '@sentinel/types';
+import type {
+  ApiError,
+  ApiErrorKind,
+  AppConfig,
+  Capabilities,
+  Diagnostics,
+  EngineEvent,
+  EngineSnapshot,
+  NetworkInterface,
+  SessionState,
+} from '@sentinel/types';
 
 const ERROR_KINDS: readonly ApiErrorKind[] = [
   'permission',

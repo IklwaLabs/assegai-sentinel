@@ -1,6 +1,9 @@
 edition = "2024"
 max_width = 100
-newline_style = "Windows"
+# LF everywhere, because that is what the repository stores on every platform. `Windows` here
+# made `cargo fmt --check` fail on the Linux and macOS runners for files committed from a
+# Windows checkout, which is a formatting preference masquerading as a build failure.
+newline_style = "Unix"
 use_field_init_shorthand = true
 use_try_shorthand = true
 imports_granularity = "Crate"

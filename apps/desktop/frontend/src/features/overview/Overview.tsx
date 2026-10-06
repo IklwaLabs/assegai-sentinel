@@ -61,7 +61,10 @@ export function Overview({
 
       {/* Data quality, stated before any numbers are read as complete. */}
       {lost > 0 && (
-        <div className="rail flex items-start justify-between gap-4 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] py-2.5" style={{ borderLeftColor: 'var(--severity-medium)' }}>
+        <div
+          className="rail flex items-start justify-between gap-4 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-raised)] py-2.5"
+          style={{ borderLeftColor: 'var(--severity-medium)' }}
+        >
           <div>
             <p className="text-[13px] text-[var(--text-primary)]">
               {count(lost)} {lost === 1 ? 'packet was' : 'packets were'} not recorded
@@ -135,7 +138,9 @@ function TopConnections({ snapshot, limit }: { snapshot: EngineSnapshot; limit: 
           <li key={row.id} className="flex items-center gap-3 px-4 py-2.5">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="mono truncate text-[12px] text-[var(--text-primary)]">{row.service ?? row.domain ?? row.destination}</span>
+                <span className="mono truncate text-[12px] text-[var(--text-primary)]">
+                  {row.service ?? row.domain ?? row.destination}
+                </span>
                 <Badge tone="neutral">{row.protocol}</Badge>
               </div>
               <span className="mono mt-0.5 block truncate text-[11px] text-[var(--text-faint)]">{row.destination}</span>

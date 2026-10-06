@@ -8,7 +8,23 @@
 
 import { Badge } from '@/components/ui';
 
-export type ViewId = 'overview' | 'traffic' | 'connections' | 'devices' | 'dns' | 'threats' | 'alerts' | 'incidents' | 'intelligence' | 'pcap' | 'timeline' | 'map' | 'interfaces' | 'rules' | 'reports' | 'settings';
+export type ViewId =
+  | 'overview'
+  | 'traffic'
+  | 'connections'
+  | 'devices'
+  | 'dns'
+  | 'threats'
+  | 'alerts'
+  | 'incidents'
+  | 'intelligence'
+  | 'pcap'
+  | 'timeline'
+  | 'map'
+  | 'interfaces'
+  | 'rules'
+  | 'reports'
+  | 'settings';
 
 interface NavItem {
   id: ViewId;
@@ -52,7 +68,10 @@ export const NAV_GROUPS: NavGroup[] = [
 
 export function Sidebar({ current, onNavigate }: { current: ViewId; onNavigate: (view: ViewId) => void }) {
   return (
-    <nav aria-label="Primary" className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-base)]">
+    <nav
+      aria-label="Primary"
+      className="flex h-full w-[var(--sidebar-width)] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-base)]"
+    >
       <div className="flex h-[var(--topbar-height)] items-center gap-2 px-4">
         {/* The mark echoes the application icon: a restrained arc, not a logo. */}
         <span aria-hidden className="relative inline-block size-4">

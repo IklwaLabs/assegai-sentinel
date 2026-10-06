@@ -30,8 +30,8 @@ export function PcapAnalysis({
       <div>
         <h1 className="text-[15px] font-medium text-[var(--text-primary)]">PCAP analysis</h1>
         <p className="mt-0.5 max-w-2xl text-[12px] text-[var(--text-muted)] text-balance">
-          Analyse a saved capture with the same decoder, flow engine and rules that run during
-          live monitoring. Nothing is uploaded; the file is read in place.
+          Analyse a saved capture with the same decoder, flow engine and rules that run during live monitoring. Nothing is
+          uploaded; the file is read in place.
         </p>
       </div>
 
@@ -49,7 +49,11 @@ export function PcapAnalysis({
                 aria-label="Path to a PCAP file"
                 className="mono min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-[var(--surface-input)] px-2.5 py-1.5 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-faint)]"
               />
-              <Button variant="primary" disabled={busy || path.trim().length === 0 || analyzing} onClick={() => onAnalyze(path.trim())}>
+              <Button
+                variant="primary"
+                disabled={busy || path.trim().length === 0 || analyzing}
+                onClick={() => onAnalyze(path.trim())}
+              >
                 {analyzing ? 'Analysing…' : 'Analyse'}
               </Button>
             </div>

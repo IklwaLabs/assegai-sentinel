@@ -83,9 +83,26 @@ jobs:
           # provides wpcap.lib; without it a Windows job cannot link, which is exactly the
           # gap documented in DEVELOPMENT.md.
           $sdk = "$env:RUNNER_TEMP\npcap-sdk"
-          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.83.zip -OutFile "$env:RUNNER_TEMP\npcap-sdk.zip"
+          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.15.zip -OutFile "$env:RUNNER_TEMP\npcap-sdk.zip"
           Expand-Archive -Path "$env:RUNNER_TEMP\npcap-sdk.zip" -DestinationPath $sdk
-          "IKLWA_PCAP_LIB=$sdk\Lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "IKLWA_PCAP_LIB=$sdk\Lib\x64" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # The frontend is built before cargo, not after. `tauri::generate_context!` reads
+      # `frontendDist` at compile time and fails with "this path doesn't exist" if the bundle
+      # has not been produced -- which is what happened on the first macOS run.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/desktop/frontend
+        run: npm ci
+
+      - name: Build the frontend
+        working-directory: apps/desktop/frontend
+        run: npm run build
 
       - name: Build
         # `--locked` plus the explicit feature list: `custom-protocol` is what makes the

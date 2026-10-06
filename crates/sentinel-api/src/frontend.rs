@@ -109,28 +109,53 @@ mod tests {
 
     use super::*;
 
-    /// Points `IKLWA_HOME` at a private directory for one test.
+    /// Serialises the tests that depend on `IKLWA_HOME`.
     ///
-    /// The engine resolves its data root from the environment, which is process-wide, so every
-    /// test in this binary shares that one variable. Each test therefore gets a *distinct*
-    /// directory named after itself: two tests writing the same SQLite database would corrupt
-    /// each other's state, and a shared mutex would serialise the suite for no benefit.
+    /// The engine resolves its data root from the environment, which is process-wide, so these
+    /// tests cannot run concurrently. An earlier version gave each test its own directory and
+    /// assumed that was enough; it is not. The variable is read inside `Engine::start`, which
+    /// happens *after* the test has started, so another test can overwrite it in between and the
+    /// engine then opens the wrong database. That showed up as an intermittent failure in the
+    /// suite -- the worst kind, because it passes on a retry.
+    static HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A held lock plus a temporary directory, kept alive for one test.
+    struct TempHome {
+        /// Releases the process-wide lock when dropped. The leading underscore says the field is
+        /// never read, only held: its whole purpose is the `Drop` order.
+        ///
+        /// Field order matters. Fields drop in declaration order, so `dir` is dropped *after*
+        /// this guard, which means the database handle is closed before the next test is allowed
+        /// to claim the environment variable.
+        _guard: std::sync::MutexGuard<'static, ()>,
+        dir: tempfile::TempDir,
+    }
+
+    impl TempHome {
+        /// A path inside this test's private data root, for a fixture the test writes.
+        fn path(&self) -> std::path::PathBuf {
+            self.dir.path().to_path_buf()
+        }
+    }
+
+    /// Points `IKLWA_HOME` at a private directory, exclusively for one test.
     ///
-    /// The most recently started test wins the variable. That is harmless because an engine
-    /// resolves its root once, inside `Engine::start`, before it processes anything.
-    ///
-    /// # Safety
-    /// `set_var` is unsafe because it is not thread-safe against a concurrent reader. These tests
-    /// are `#[tokio::test]` on single-threaded runtimes, and the variable is read only inside
-    /// `Engine::start`, which has already returned for any engine still running.
-    fn use_temp_home(name: &str) -> tempfile::TempDir {
-        let temp = tempfile::tempdir().expect("temp dir");
-        let home = temp.path().join(name);
-        // SAFETY: see the note above; no concurrent environment access in this test binary.
+    /// The returned value must be held for the whole test. Dropping it early releases the lock
+    /// while the engine is still running, which reintroduces exactly the race this prevents.
+    fn use_temp_home(name: &str) -> TempHome {
+        let guard = HOME_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home = dir.path().join(name);
+        // SAFETY: the lock above guarantees no other test in this binary is reading or writing
+        // the environment concurrently, which is the documented precondition for `set_var`.
         unsafe {
             std::env::set_var("IKLWA_HOME", &home);
         }
-        temp
+
+        TempHome { _guard: guard, dir }
     }
 
     #[tokio::test]

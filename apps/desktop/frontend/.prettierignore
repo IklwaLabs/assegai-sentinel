@@ -1,0 +1,15 @@
+# Build output and dependencies. Formatting these is meaningless -- they are generated, and
+# prettier checking them produced a failure that looked like a source problem but was not.
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# The Rust side is formatted by rustfmt, and the SQL by hand. Running a JavaScript formatter
+# over either would fight the tool that owns those files.
+../../../crates/
+../../../tools/
+../../../packages/
+
+# Generated documentation. The PDF is produced by tools/generate-reference-pdf.py.
+../../../docs/

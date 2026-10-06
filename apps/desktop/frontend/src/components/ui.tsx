@@ -116,15 +116,7 @@ export function Dot({ tone = 'neutral' }: { tone?: 'neutral' | 'accent' | 'safe'
  * Every empty state in the product uses this, because "No data" tells a person nothing. Each
  * one names the condition and offers the single action that resolves it.
  */
-export function EmptyState({
-  title,
-  body,
-  action,
-}: {
-  title: string;
-  body: string;
-  action?: ReactNode;
-}) {
+export function EmptyState({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
       <p className="text-[13px] font-medium text-[var(--text-secondary)]">{title}</p>
@@ -164,11 +156,15 @@ export function Button({
   disabled?: boolean;
   type?: 'button' | 'submit';
   title?: string | undefined;
-}) {  const variants = {
+}) {
+  const variants = {
     primary: 'bg-[var(--accent)] text-[var(--accent-contrast)] hover:bg-[var(--accent-hover)] border-transparent',
-    secondary: 'bg-[var(--surface-overlay)] text-[var(--text-primary)] hover:bg-[var(--surface-input)] border-[var(--border-default)]',
-    ghost: 'bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-overlay)] border-transparent',
-    danger: 'bg-transparent text-[var(--severity-critical)] hover:bg-[var(--severity-critical-surface)] border-[var(--severity-critical)]',
+    secondary:
+      'bg-[var(--surface-overlay)] text-[var(--text-primary)] hover:bg-[var(--surface-input)] border-[var(--border-default)]',
+    ghost:
+      'bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-overlay)] border-transparent',
+    danger:
+      'bg-transparent text-[var(--severity-critical)] hover:bg-[var(--severity-critical-surface)] border-[var(--severity-critical)]',
   } as const;
 
   return (

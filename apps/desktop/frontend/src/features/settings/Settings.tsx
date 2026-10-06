@@ -91,7 +91,10 @@ export function Settings({
             />
           </Field>
 
-          <Field label="Promiscuous mode" hint="Captures traffic not addressed to this machine. Requires elevated privileges and sees more, unrelated traffic.">
+          <Field
+            label="Promiscuous mode"
+            hint="Captures traffic not addressed to this machine. Requires elevated privileges and sees more, unrelated traffic."
+          >
             <Toggle
               checked={draft.capture.promiscuous}
               onChange={(value) => update('capture', { ...draft.capture, promiscuous: value })}
@@ -111,7 +114,10 @@ export function Settings({
 
       <Panel title="Retention">
         <div className="px-4 pb-3">
-          <Field label="Connection history" hint="Older connections are deleted automatically. Sentinel never stores raw packets.">
+          <Field
+            label="Connection history"
+            hint="Older connections are deleted automatically. Sentinel never stores raw packets."
+          >
             <Select
               value={namedChoice(draft.retention.flows)}
               onChange={(value) => update('retention', { ...draft.retention, flows: value })}
@@ -119,7 +125,10 @@ export function Settings({
             />
           </Field>
 
-          <Field label="Traffic history" hint="Controls the traffic chart's stored samples. Smaller values keep the database small.">
+          <Field
+            label="Traffic history"
+            hint="Controls the traffic chart's stored samples. Smaller values keep the database small."
+          >
             <Select
               value={namedChoice(draft.retention.trafficSamples)}
               onChange={(value) => update('retention', { ...draft.retention, trafficSamples: value })}
@@ -153,7 +162,11 @@ export function Settings({
               </div>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-[var(--text-muted)]">Capture available now</span>
-                <span className="mono text-[var(--text-primary)]">{capabilities.libraryPresent && (!capabilities.requiresElevation || capabilities.privilege === 'elevated') ? 'yes' : 'no'}</span>
+                <span className="mono text-[var(--text-primary)]">
+                  {capabilities.libraryPresent && (!capabilities.requiresElevation || capabilities.privilege === 'elevated')
+                    ? 'yes'
+                    : 'no'}
+                </span>
               </div>
               {capabilities.notes.map((note) => (
                 <p key={note} className="text-[12px] text-[var(--text-faint)]">

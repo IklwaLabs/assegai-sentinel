@@ -56,7 +56,12 @@ export function InterfacePicker({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6" role="dialog" aria-modal="true" aria-label="Choose a network interface">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Choose a network interface"
+    >
       <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--surface-raised)] shadow-[var(--shadow-overlay)]">
         <header className="flex items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3">
           <div>

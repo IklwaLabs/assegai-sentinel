@@ -1,0 +1,33 @@
+# Line endings.
+#
+# The repository is checked out on Linux, macOS and Windows, and a file whose endings differ
+# between them produces a diff that changes nothing. Rust's formatter is stricter still: it
+# reports "Incorrect newline style" and fails, which is how CRLF committed from a Windows
+# checkout was caught by CI rather than by a reviewer.
+#
+# `text=auto eol=lf` normalises on commit, so the repository stores LF everywhere and Windows
+# developers still get a working tree their tools expect.
+
+* text=auto eol=lf
+
+# These are binary. `text` would corrupt them, and `eol` is meaningless for them.
+*.png binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.pcap binary
+*.pcapng binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+
+# Lockfiles and generated fixtures are checked in exactly as produced.
+Cargo.lock -diff
+package-lock.json -diff
+fixtures/demo-traffic.pcap -diff
+docs/Sentinel-Reference.pdf -diff
+
+# Windows scripts must keep CRLF: PowerShell's parser is more forgiving of LF, but `cmd` batch
+# files are not, and a CRLF-less .cmd silently misbehaves.
+*.bat text eol=crlf
+*.cmd text eol=crlf

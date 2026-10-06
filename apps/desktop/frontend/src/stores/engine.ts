@@ -10,7 +10,15 @@
  */
 
 import { create } from 'zustand';
-import type { ApiError, AppConfig, Capabilities, Diagnostics, EngineEvent, EngineSnapshot, NetworkInterface } from '@sentinel/types';
+import type {
+  ApiError,
+  AppConfig,
+  Capabilities,
+  Diagnostics,
+  EngineEvent,
+  EngineSnapshot,
+  NetworkInterface,
+} from '@sentinel/types';
 import * as api from '@/lib/tauri';
 
 /** The store's shape, named so props can be typed without inference. */

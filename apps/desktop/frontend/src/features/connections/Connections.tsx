@@ -23,7 +23,15 @@ const SORTS: { key: SortKey; label: string }[] = [
   { key: 'name', label: 'Destination' },
 ];
 
-export function Connections({ snapshot, paused, onTogglePause }: { snapshot: EngineSnapshot; paused: boolean; onTogglePause: () => void }) {
+export function Connections({
+  snapshot,
+  paused,
+  onTogglePause,
+}: {
+  snapshot: EngineSnapshot;
+  paused: boolean;
+  onTogglePause: () => void;
+}) {
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SortKey>('recent');
   const [selected, setSelected] = useState<ConnectionRow | null>(null);
@@ -106,7 +114,10 @@ export function Connections({ snapshot, paused, onTogglePause }: { snapshot: Eng
             body="Sentinel shows connections as it observes them. Start monitoring on a network interface, or analyse a capture file, to populate this list."
           />
         ) : rows.length === 0 ? (
-          <EmptyState title="Nothing matched that filter" body="No connection matches the current search. Clear it to see everything again." />
+          <EmptyState
+            title="Nothing matched that filter"
+            body="No connection matches the current search. Clear it to see everything again."
+          />
         ) : (
           <div className="min-h-0 overflow-auto">
             <table className="w-full border-collapse text-[13px]">
@@ -117,8 +128,12 @@ export function Connections({ snapshot, paused, onTogglePause }: { snapshot: Eng
                   <Th className="w-16">Proto</Th>
                   <Th numeric>Upload</Th>
                   <Th numeric>Download</Th>
-                  <Th numeric className="w-16">Packets</Th>
-                  <Th numeric className="w-20">Duration</Th>
+                  <Th numeric className="w-16">
+                    Packets
+                  </Th>
+                  <Th numeric className="w-20">
+                    Duration
+                  </Th>
                 </tr>
               </thead>
               <tbody>
@@ -168,7 +183,10 @@ export function Connections({ snapshot, paused, onTogglePause }: { snapshot: Eng
 /** A table header cell. */
 function Th({ children, numeric = false, className = '' }: { children: React.ReactNode; numeric?: boolean; className?: string }) {
   return (
-    <th scope="col" className={`px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)] ${numeric ? 'text-right' : ''} ${className}`}>
+    <th
+      scope="col"
+      className={`px-3 py-2 text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)] ${numeric ? 'text-right' : ''} ${className}`}
+    >
       {children}
     </th>
   );

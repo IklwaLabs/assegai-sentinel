@@ -25,11 +25,7 @@ export function ErrorBanner({ error, onDismiss }: { error: ApiError; onDismiss: 
   const [showDetails, setShowDetails] = useState(false);
 
   return (
-    <div
-      role="alert"
-      className="rail bg-[var(--surface-raised)]"
-      style={{ borderLeftColor: KIND_ACCENT[error.kind] }}
-    >
+    <div role="alert" className="rail bg-[var(--surface-raised)]" style={{ borderLeftColor: KIND_ACCENT[error.kind] }}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[13px] font-medium text-[var(--text-primary)]">{error.title}</p>

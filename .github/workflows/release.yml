@@ -39,18 +39,47 @@ jobs:
         with:
           key: verify-${{ matrix.os }}
 
-      - name: Install libpcap (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: apps/desktop/frontend/package-lock.json
 
+      # The frontend is built before cargo. `tauri::generate_context!` resolves `frontendDist`
+      # at compile time and fails with "this path doesn't exist" when the bundle is absent,
+      # which is what the first macOS run reported.
+      - name: Install frontend dependencies
+        working-directory: apps/desktop/frontend
+        run: npm ci
+
+      - name: Build the frontend
+        working-directory: apps/desktop/frontend
+        run: npm run build
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libpcap-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libssl-dev
+
+      # The Npcap *runtime* installs the DLLs but not `wpcap.lib`, so a Windows job cannot
+      # link without the SDK. The archive is downloaded rather than the interactive installer
+      # being run, because a runner has no way to click through it. `Lib\x64` is the x64 tree;
+      # the parent directory also holds 32-bit and ARM64 import libraries.
       - name: Install Npcap SDK (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $sdk = "$env:RUNNER_TEMP\npcap-sdk"
-          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.83.zip -OutFile "$env:RUNNER_TEMP\sdk.zip"
+          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.15.zip -OutFile "$env:RUNNER_TEMP\sdk.zip"
           Expand-Archive -Path "$env:RUNNER_TEMP\sdk.zip" -DestinationPath $sdk
-          "IKLWA_PCAP_LIB=$sdk\Lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "IKLWA_PCAP_LIB=$sdk\Lib\x64" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Test
         run: cargo test --workspace --locked
@@ -185,9 +214,9 @@ jobs:
         shell: pwsh
         run: |
           $sdk = "$env:RUNNER_TEMP\npcap-sdk"
-          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.83.zip -OutFile "$env:RUNNER_TEMP\sdk.zip"
+          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.15.zip -OutFile "$env:RUNNER_TEMP\sdk.zip"
           Expand-Archive -Path "$env:RUNNER_TEMP\sdk.zip" -DestinationPath $sdk
-          "IKLWA_PCAP_LIB=$sdk\Lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "IKLWA_PCAP_LIB=$sdk\Lib\x64" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build the CLI
         run: cargo build --release -p sentinel-cli --locked
