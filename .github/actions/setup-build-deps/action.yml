@@ -1,0 +1,96 @@
+name: Set up Sentinel build dependencies
+description: >
+  Installs the native libraries the workspace links against and builds the frontend
+  bundle that compiling the desktop crate requires. Every job in CI and in the release
+  matrix needs both, so they live here rather than being copied into six places --
+  copied lists drift, and the drift is invisible until a runner fails.
+
+runs:
+  using: composite
+  steps:
+    # ---------------------------------------------------------------- Linux
+    - name: Install Linux build dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libpcap-dev \
+          libwebkit2gtk-4.1-dev \
+          libappindicator3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libxdo-dev \
+          libssl-dev \
+          patchelf \
+          build-essential \
+          curl \
+          file
+
+    # --------------------------------------------------------------- Windows
+    - name: Install Npcap runtime and SDK (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $ProgressPreference = 'SilentlyContinue'
+        $work = Join-Path $env:RUNNER_TEMP 'npcap'
+        New-Item -ItemType Directory -Force -Path $work | Out-Null
+
+        # The runtime and the SDK are two different downloads that solve two different
+        # problems, and a job needs both:
+        #
+        #   runtime -> wpcap.dll in System32. The SDK ships import libraries and headers
+        #              but no DLL, so a job with only the SDK links cleanly and then dies
+        #              at process start with STATUS_DLL_NOT_FOUND. That failure is silent
+        #              in cargo's output: it prints "test failed" with no assertion, no
+        #              test name and no test count.
+        #   SDK     -> wpcap.lib, so the linker has something to resolve against.
+        #
+        # `/S` is Npcap's documented silent-install flag. The driver it installs is not
+        # needed: no test enumerates or opens a live interface, which is what keeps this
+        # suite deterministic. Only the DLL is required, and that lands immediately.
+        $installer = Join-Path $work 'npcap-installer.exe'
+        Invoke-WebRequest -Uri 'https://npcap.com/dist/npcap-1.89.exe' -OutFile $installer
+        $process = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
+        "Npcap installer exit code: $($process.ExitCode)"
+
+        $dll = Join-Path $env:SystemRoot 'System32\wpcap.dll'
+        if (-not (Test-Path $dll)) {
+          throw "wpcap.dll is not in System32 after installing the Npcap runtime. Test binaries link against it transitively through sentinel-capture and will fail to start with no useful message."
+        }
+
+        $sdk = Join-Path $work 'sdk'
+        $archive = Join-Path $work 'sdk.zip'
+        Invoke-WebRequest -Uri 'https://npcap.com/dist/npcap-sdk-1.16.zip' -OutFile $archive
+        Expand-Archive -Path $archive -DestinationPath $sdk
+
+        # Lib\x64 rather than Lib, which also holds the x86 and ARM64 trees: a parent
+        # directory on the link path leaves the linker to choose between three import
+        # libraries that differ in architecture.
+        $lib = Join-Path $sdk 'Lib\x64'
+        if (-not (Test-Path (Join-Path $lib 'wpcap.lib'))) {
+          throw "wpcap.lib not found under $lib. The SDK layout changed."
+        }
+        "IKLWA_PCAP_LIB=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+    # ------------------------------------------------------------- Frontend
+    # Built before cargo runs, not after. `tauri::generate_context!` resolves
+    # `frontendDist` at compile time and fails when the bundle is absent -- which is
+    # exactly what the first macOS run reported.
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: npm
+        cache-dependency-path: apps/desktop/frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      shell: bash
+      working-directory: apps/desktop/frontend
+      run: npm ci
+
+    - name: Build the frontend
+      shell: bash
+      working-directory: apps/desktop/frontend
+      run: npm run build

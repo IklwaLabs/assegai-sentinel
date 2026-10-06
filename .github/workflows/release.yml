@@ -21,6 +21,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_TERM_PROGRESS_WHEN: never
 
 jobs:
   # A release is only cut once every platform has passed its own tests. Building first and
@@ -39,47 +40,7 @@ jobs:
         with:
           key: verify-${{ matrix.os }}
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: apps/desktop/frontend/package-lock.json
-
-      # The frontend is built before cargo. `tauri::generate_context!` resolves `frontendDist`
-      # at compile time and fails with "this path doesn't exist" when the bundle is absent,
-      # which is what the first macOS run reported.
-      - name: Install frontend dependencies
-        working-directory: apps/desktop/frontend
-        run: npm ci
-
-      - name: Build the frontend
-        working-directory: apps/desktop/frontend
-        run: npm run build
-
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libpcap-dev \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libssl-dev
-
-      # The Npcap *runtime* installs the DLLs but not `wpcap.lib`, so a Windows job cannot
-      # link without the SDK. The archive is downloaded rather than the interactive installer
-      # being run, because a runner has no way to click through it. `Lib\x64` is the x64 tree;
-      # the parent directory also holds 32-bit and ARM64 import libraries.
-      - name: Install Npcap SDK (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $sdk = "$env:RUNNER_TEMP\npcap-sdk"
-          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.15.zip -OutFile "$env:RUNNER_TEMP\sdk.zip"
-          Expand-Archive -Path "$env:RUNNER_TEMP\sdk.zip" -DestinationPath $sdk
-          "IKLWA_PCAP_LIB=$sdk\Lib\x64" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: ./.github/actions/setup-build-deps
 
       - name: Test
         run: cargo test --workspace --locked
@@ -98,34 +59,13 @@ jobs:
         with:
           key: release-linux
 
-      # WebKitGTK and the AppIndicator libraries are what the Tauri webview links against.
-      # Missing them produces a link error naming a dozen transitive packages, so they are
-      # installed explicitly rather than discovered.
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libpcap-dev \
-            build-essential \
-            curl \
-            file \
-            libssl-dev \
-            libayatana-appindicator3-dev
+      - uses: ./.github/actions/setup-build-deps
 
       - name: Build the CLI for x86_64
         run: cargo build --release -p sentinel-cli --locked
         env:
           IKLWA_HOME: .sentinel-ci
 
-      - name: Build and bundle the desktop app
-        working-directory: apps/desktop/frontend
-        run: |
-          npm ci
-          npm run build
       - name: Bundle deb and AppImage
         run: |
           npx --prefix apps/desktop/frontend tauri build \
@@ -139,13 +79,14 @@ jobs:
         run: |
           mkdir -p artifacts
           cp target/release/sentinel artifacts/sentinel-x86_64-unknown-linux-gnu
-          cp target/release/build/sentinel-*/out/*.deb artifacts/ 2>/dev/null || true
-          cp target/release/build/sentinel-*/out/*.AppImage artifacts/ 2>/dev/null || true
-          # A tarball keeps the AppImage executable bit, which `cp` into an artifact upload
-          # does not always preserve.
-          for f in target/release/build/sentinel-*/out/*.AppImage; do
+          cp target/release/bundle/debian/*.deb artifacts/ 2>/dev/null || true
+          cp target/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+          # A tarball keeps the AppImage executable bit, which an artifact upload does not
+          # reliably preserve for a raw file.
+          for f in target/release/bundle/appimage/*.AppImage; do
             [ -e "$f" ] && tar czf "artifacts/$(basename "$f").tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
           done
+          ( cd artifacts && sha256sum * > SHA256SUMS.txt )
           ls -la artifacts/
 
       - uses: actions/upload-artifact@v4
@@ -164,16 +105,12 @@ jobs:
         with:
           key: release-macos
 
+      - uses: ./.github/actions/setup-build-deps
+
       - name: Build the CLI
         run: cargo build --release -p sentinel-cli --locked
         env:
           IKLWA_HOME: .sentinel-ci
-
-      - name: Build the frontend
-        working-directory: apps/desktop/frontend
-        run: |
-          npm ci
-          npm run build
 
       - name: Bundle app and dmg
         run: |
@@ -190,9 +127,9 @@ jobs:
         run: |
           mkdir -p artifacts
           ditto -c -k --keepParent "target/release/bundle/macos/Sentinel.app" "artifacts/Sentinel-macos-universal.zip"
-          cp "target/release/bundle/dmg/"*.dmg artifacts/ 2>/dev/null || true
-          cd artifacts && shasum -a 256 * > SHA256SUMS.txt && cat SHA256SUMS.txt
-          ls -la
+          cp target/release/bundle/dmg/*.dmg artifacts/ 2>/dev/null || true
+          ( cd artifacts && shasum -a 256 * > SHA256SUMS.txt && cat SHA256SUMS.txt )
+          ls -la artifacts/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -210,22 +147,10 @@ jobs:
         with:
           key: release-windows
 
-      - name: Install Npcap SDK
-        shell: pwsh
-        run: |
-          $sdk = "$env:RUNNER_TEMP\npcap-sdk"
-          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.15.zip -OutFile "$env:RUNNER_TEMP\sdk.zip"
-          Expand-Archive -Path "$env:RUNNER_TEMP\sdk.zip" -DestinationPath $sdk
-          "IKLWA_PCAP_LIB=$sdk\Lib\x64" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: ./.github/actions/setup-build-deps
 
       - name: Build the CLI
         run: cargo build --release -p sentinel-cli --locked
-
-      - name: Build the frontend
-        working-directory: apps/desktop/frontend
-        run: |
-          npm ci
-          npm run build
 
       - name: Bundle NSIS and MSI
         run: |
@@ -233,6 +158,9 @@ jobs:
             --config apps/desktop/src-tauri/tauri.conf.json `
             --bundles nsis,msi
 
+      # Npcap is a runtime dependency of the shipped binary, so the installer has to appear in
+      # the bundle's own installer rather than being left to the user to discover. Without it
+      # the application starts and then reports every interface as unavailable.
       - name: Collect artifacts
         shell: pwsh
         run: |
@@ -271,29 +199,24 @@ jobs:
       - name: Install Android SDK
         uses: android-actions/setup-android@v3
 
+      # The NDK is not optional. `tauri android init` looks for it under ANDROID_NDK_HOME and
+      # fails immediately with "Android NDK not found" when it is absent, which is the single
+      # most common way this job dies before producing anything.
       - name: Install Android NDK and build tools
         run: |
-          sdkmanager "ndk;26.1.10909125" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          sdkmanager --install "ndk;26.1.10909125" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
           echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$ANDROID_SDK_ROOT/ndk_home"
+          echo "tauri.cli.androidProjectPath=apps/desktop/src-tauri/gen/android" >> "$GITHUB_ENV"
 
-      - name: Install Linux build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev
-
-      - name: Install frontend dependencies
-        working-directory: apps/desktop/frontend
-        run: |
-          npm ci
-          npm run build
+      - uses: ./.github/actions/setup-build-deps
 
       - name: Initialise the Android project
         run: npx --prefix apps/desktop/frontend tauri android init --ci
 
       # Live capture on Android needs a userspace TCP/IP stack over a VPN slot, which is not
-      # implemented. The APK therefore ships the interface and offline PCAP analysis, and
-      # reports capture as unsupported rather than failing at runtime.
+      # implemented. The APK therefore ships the interface listing and offline PCAP analysis,
+      # and reports capture as unsupported rather than failing at runtime.
       - name: Build the APK
         run: |
           npx --prefix apps/desktop/frontend tauri android build \
@@ -306,6 +229,7 @@ jobs:
         run: |
           mkdir -p artifacts
           find apps/desktop/src-tauri/gen/android -name "*.apk" -exec cp {} artifacts/ \;
+          ( cd artifacts && sha256sum * > SHA256SUMS.txt )
           ls -la artifacts/
 
       - uses: actions/upload-artifact@v4
@@ -353,8 +277,12 @@ jobs:
 
             ### Verifying a download
 
-            macOS and Linux artifacts ship a `SHA256SUMS.txt`. Windows and Android do not, because
-            their release pipelines already authenticate the download over TLS.
+            Each platform's artifact set includes a `SHA256SUMS.txt`. Compare it against your
+            download before running anything:
+
+            ```
+            sha256sum -c SHA256SUMS.txt
+            ```
 
             ### Running unsigned macOS builds
 
@@ -369,7 +297,7 @@ jobs:
 
             | Platform | Requirement |
             | --- | --- |
-            | Windows | Administrator. Install [Npcap](https://npcap.com/). |
+            | Windows | Administrator. Install [Npcap](https://npcap.com/) first. |
             | Linux | `sudo setcap cap_net_raw,cap_net_admin=eip <path to sentinel>` |
             | macOS | Membership of the `access_bpcap` group, or run with `sudo`. |
             | Android | Not implemented. The APK analyses PCAP files only. |

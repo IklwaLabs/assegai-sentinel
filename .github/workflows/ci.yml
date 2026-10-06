@@ -37,8 +37,10 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install Linux build dependencies
-        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+      # Linting the workspace means linting sentinel-desktop, which means linking the Tauri
+      # webview and resolving the frontend bundle. Skipping this step produced a clippy run
+      # that died in a build script before it reached a single line of Sentinel code.
+      - uses: ./.github/actions/setup-build-deps
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -63,46 +65,7 @@ jobs:
         with:
           key: ${{ matrix.os }}
 
-      - name: Install Linux build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libpcap-dev \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libssl-dev
-
-      - name: Install Npcap SDK (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # The Npcap installer is interactive, so it is run silently. The SDK is what
-          # provides wpcap.lib; without it a Windows job cannot link, which is exactly the
-          # gap documented in DEVELOPMENT.md.
-          $sdk = "$env:RUNNER_TEMP\npcap-sdk"
-          Invoke-WebRequest -Uri https://npcap.com/dist/npcap-sdk-1.15.zip -OutFile "$env:RUNNER_TEMP\npcap-sdk.zip"
-          Expand-Archive -Path "$env:RUNNER_TEMP\npcap-sdk.zip" -DestinationPath $sdk
-          "IKLWA_PCAP_LIB=$sdk\Lib\x64" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      # The frontend is built before cargo, not after. `tauri::generate_context!` reads
-      # `frontendDist` at compile time and fails with "this path doesn't exist" if the bundle
-      # has not been produced -- which is what happened on the first macOS run.
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: apps/desktop/frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: apps/desktop/frontend
-        run: npm ci
-
-      - name: Build the frontend
-        working-directory: apps/desktop/frontend
-        run: npm run build
+      - uses: ./.github/actions/setup-build-deps
 
       - name: Build
         # `--locked` plus the explicit feature list: `custom-protocol` is what makes the
@@ -114,7 +77,8 @@ jobs:
 
       # The suite does not need a capture driver or privileges: every packet-path test runs
       # through generated frames and the offline source. That is deliberate, and it means CI
-      # is deterministic.
+      # is deterministic. It does need the Npcap runtime on Windows, though, because the test
+      # binary links wpcap.dll transitively -- see the setup action.
       - name: Test
         run: cargo test --workspace --locked
 
@@ -156,17 +120,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-
-      - name: Install libpcap headers
-        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
 
       # Fixtures are generated from source rather than committed as binaries, so their contents
       # are reviewable. That only helps if regenerating one produces the same bytes; a
       # difference would mean the generator drifted and a golden test could silently change
       # what it asserts.
+      #
+      # Only the libpcap headers are needed. The full setup action would install the webview
+      # toolchain for sentinel-desktop, which this job never builds.
+      - name: Install libpcap headers
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
       - name: Regenerate and verify
         run: |
           cargo run -p sentinel-fixtures -- fixtures/demo-traffic.pcap
