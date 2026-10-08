@@ -236,15 +236,9 @@ impl LiveCapture {
                             idle_ms = 0;
                             stats.received.fetch_add(1, Ordering::Relaxed);
                             let raw = RawPacket::new(
-                                // `as` rather than `From`: `pcap`'s timestamp fields are
-                                // `libc::time_t` and `libc::suseconds_t`, which are `i32` on
-                                // Windows and `i64` everywhere else. `i64::from` compiles on
-                                // Windows and is a useless conversion on Linux, which clippy
-                                // rejects -- so the one spelling that is correct on both
-                                // platforms is the cast.
                                 timestamp_from_parts(
-                                    packet.header.ts.tv_sec as i64,
-                                    packet.header.ts.tv_usec as i64,
+                                    packet.header.ts.tv_sec,
+                                    packet.header.ts.tv_usec,
                                 ),
                                 packet.header.caplen,
                                 packet.header.len,
@@ -324,8 +318,24 @@ fn open_device(
 /// Converts a `timeval` pair to microseconds since the Unix epoch.
 ///
 /// Signed components are used so a pre-epoch timestamp cannot wrap into a huge unsigned value.
+///
+/// The parameters are generic over `Into<i64>` rather than being declared `i64`, and that is
+/// not decoration. `pcap` exposes them as `libc::time_t` and `libc::suseconds_t`, which are
+/// `i32` under Windows and `i64` everywhere else. Widening the conversion to the callee means
+/// the call site passes the field unchanged, so there is no `i64::from` for clippy to call a
+/// useless conversion on Windows and no `as i64` for it to call an unnecessary cast on Linux.
+///
+/// An earlier version had the conversion at the call site and got this wrong twice in a row:
+/// `i64::from` was correct only on Windows, and `as i64` was correct only on Linux. Each
+/// version passed on the machine that produced it and failed on the other.
 #[must_use]
-pub(crate) fn timestamp_from_parts(seconds: i64, microseconds: i64) -> u64 {
+pub(crate) fn timestamp_from_parts<S, U>(seconds: S, microseconds: U) -> u64
+where
+    S: Into<i64>,
+    U: Into<i64>,
+{
+    let seconds: i64 = seconds.into();
+    let microseconds: i64 = microseconds.into();
     let total = seconds
         .saturating_mul(1_000_000)
         .saturating_add(microseconds);
