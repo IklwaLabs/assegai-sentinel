@@ -23,6 +23,7 @@ read one thing, read that.
 | [PACKET_PIPELINE.md](PACKET_PIPELINE.md) | How a frame becomes a connection, and where data can be lost |
 | [DETECTION_ENGINE.md](DETECTION_ENGINE.md) | The detection design, and why it is not implemented yet |
 | [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) | Per-platform drivers, privileges and limitations |
+| [MATURITY-ANALYSIS.md](MATURITY-ANALYSIS.md) | Research notes: what mature NSM tools have that Sentinel lacks, and a proposed ordering |
 
 ## The product reference is generated
 

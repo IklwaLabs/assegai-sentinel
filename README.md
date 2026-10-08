@@ -75,6 +75,7 @@ document — architecture, how to run it, how to control it, troubleshooting. St
 | [docs/PACKET_PIPELINE.md](docs/PACKET_PIPELINE.md) | How a frame becomes a connection, and where data can be lost |
 | [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | The detection design, and why it is not implemented yet |
 | [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) | Per-platform drivers, privileges and limitations |
+| [docs/MATURITY-ANALYSIS.md](docs/MATURITY-ANALYSIS.md) | What mature NSM tools have that Sentinel lacks, and the proposed order to build it |
 
 ## Downloading
 
