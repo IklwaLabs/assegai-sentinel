@@ -477,8 +477,27 @@ mod tests {
         assert!(capture.consumer().try_next().is_none());
     }
 
+    /// True when a capture driver is installed and usable on this machine.
+    ///
+    /// `Device::list` is the only libpcap call used as a probe, because it is the one that
+    /// reports failure rather than trapping when there is no driver. Anything that goes on to
+    /// `pcap_create` needs a real stack behind it.
+    fn driver_available() -> bool {
+        pcap::Device::list().is_ok()
+    }
+
     #[test]
     fn opening_a_missing_interface_fails_cleanly() {
+        // This exercises the libpcap call sequence itself: a non-existent device has to fail
+        // with a typed error rather than a panic. There is no way to make that call without a
+        // driver, so on a machine without one the test is skipped rather than pretended --
+        // which is why CI substitutes a stub and why a developer machine without Npcap sees
+        // this note instead of a false pass.
+        if !driver_available() {
+            eprintln!("skipping: no capture driver on this machine");
+            return;
+        }
+
         let mut capture = LiveCapture::new(LiveCaptureConfig::default(), 64);
 
         // A synthetic interface that cannot exist: the attempt must fail with a typed error,

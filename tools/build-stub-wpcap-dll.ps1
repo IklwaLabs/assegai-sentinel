@@ -33,20 +33,23 @@
 .PARAMETER OutputDirectory
   Where to write wpcap.dll. Defaults to a directory under the runner temp.
 
-.PARAMETER ImportLibrary
-  Path to wpcap.lib, or to the directory containing it. The stub is generated from the
-  wpcap.def sitting beside it, which is the authoritative export list.
+.PARAMETER BinaryDirectory
+  Directory holding the compiled test binaries to read import tables from. Their union of
+  wpcap imports is exactly the set of symbols the loader will ask for.
 
 .EXAMPLE
-  pwsh -File tools/build-stub-wpcap-dll.ps1
+  pwsh -File tools/build-stub-wpcap-dll.ps1 -BinaryDirectory target/debug/deps
 #>
 [CmdletBinding()]
 param(
     [string] $OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) 'iklwa-stub-wpcap'),
-    [string] $ImportLibrary = $env:IKLWA_PCAP_LIB
+    [string] $BinaryDirectory = 'target\debug\deps'
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Set by Find-VisualStudioEnvironment; read by Get-RequiredExports and the link step.
+$script:dumpbin = $null
 
 function Find-VisualStudioEnvironment {
     <#
@@ -89,37 +92,101 @@ function Find-VisualStudioEnvironment {
     return $null
 }
 
-function Resolve-DefinitionFile {
+function Find-Dumpbin {
     <#
-      Locates wpcap.def. It ships inside the Npcap SDK alongside wpcap.lib and is the exact
-      list of symbols a real wpcap.dll exports, which is precisely what the loader will ask
-      for. Deriving the stub from it means the export table cannot drift from the import
-      library the binary was linked against.
+      dumpbin lives beside cl.exe under Tools\MSVC, and is only on PATH after the developer
+      environment is set up. Rather than shelling out to cmd once per binary, locate it once
+      and call it directly.
+
+      The MSVC root is found by walking *up* from the known batch file until Tools\MSVC
+      appears, because the two batch files sit at different depths
+      (VC\Auxiliary\Build\vcvars64.bat versus <edition>\Common7\Tools\VsDevCmd.bat) and
+      counting parent directories to normalise that gets it wrong easily -- it did once.
     #>
-    param([string] $ImportLibrary)
+    param([string] $VsDevCmd)
 
-    if (-not $ImportLibrary) {
-        throw @'
-IKLWA_PCAP_LIB is not set, so the stub DLL cannot be generated.
-
-The stub's export table comes from the wpcap.def beside the Npcap SDK's wpcap.lib, so that
-the symbols match the import library exactly. Set IKLWA_PCAP_LIB to the directory holding
-wpcap.lib, or pass -ImportLibrary.
-'@
+    $directory = Split-Path $VsDevCmd -Parent
+    for ($depth = 0; $depth -lt 6 -and $directory; $depth++) {
+        $tools = Join-Path $directory 'Tools\MSVC'
+        if (Test-Path $tools) {
+            $candidate = Get-ChildItem -Path $tools -Recurse -Filter 'dumpbin.exe' -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match 'Hostx64[\\/]x64' } |
+                Sort-Object FullName -Descending |
+                Select-Object -First 1
+            if ($candidate) { return $candidate.FullName }
+        }
+        $parent = Split-Path $directory -Parent
+        if ($parent -eq $directory) { break }
+        $directory = $parent
     }
 
-    $candidates = @()
-    if (Test-Path $ImportLibrary -PathType Leaf) {
-        $candidates += (Join-Path (Split-Path $ImportLibrary -Parent) 'wpcap.def')
-    } else {
-        $candidates += (Join-Path $ImportLibrary 'wpcap.def')
+    throw "dumpbin.exe not found within 6 levels above $VsDevCmd."
+}
+
+function Get-RequiredExports {
+    <#
+      Reads the wpcap import table out of compiled binaries and returns the union of the
+      symbols they import.
+
+      This is derived from the binaries rather than from the Npcap SDK, and it has to be. Two
+      sources that look authoritative are not:
+
+        * The SDK ships no .def file. Its wpcap.lib contains only __IMPORT_DESCRIPTOR_wpcap;
+          the function names live in the linked binary's .idata section, not in the library's
+          symbol table, so `dumpbin /symbols` returns no __imp_ entries to work from.
+        * Guessing the list from the pcap crate's source would rot the first time the crate
+          added a call.
+
+      The import table of the actual binaries cannot drift: it is literally the list the
+      Windows loader will fail to resolve.
+    #>
+    param([string] $BinaryDirectory)
+
+    if (-not (Test-Path $BinaryDirectory)) {
+        throw "Binary directory not found: $BinaryDirectory. Compile the test binaries first."
     }
 
-    foreach ($candidate in $candidates) {
-        if (Test-Path $candidate -PathType Leaf) { return $candidate }
+    $binaries = @(Get-ChildItem -Path $BinaryDirectory -Filter '*.exe' -File -ErrorAction SilentlyContinue)
+    if ($binaries.Count -eq 0) {
+        throw "No .exe files under $BinaryDirectory. Compile the test binaries first: cargo test --workspace --no-run"
     }
 
-    throw "wpcap.def not found beside the import library. Looked in: $($candidates -join ', ')"
+    $imports = [System.Collections.Generic.HashSet[string]]::new()
+    $matched = 0
+
+    foreach ($binary in $binaries) {
+        $dump = & $dumpbin /imports $binary.FullName 2>$null
+        if (-not $dump) { continue }
+
+        $lines = @($dump)
+        $index = 0
+        while ($index -lt $lines.Count) {
+            # The DLL name line is indented and ends in .dll. Imports for a module are the
+            # symbol lines following it, up to the next module header or blank.
+            if ($lines[$index] -match '^\s+(\S+\.dll)\s*$') {
+                $module = $Matches[1]
+                $cursor = $index + 1
+                if ($module -ieq 'wpcap.dll') {
+                    $matched++
+                    while ($cursor -lt $lines.Count -and $lines[$cursor] -notmatch '^\s{4}\S') {
+                        if ($lines[$cursor] -match '^\s+[0-9A-F]+\s+([A-Za-z_][A-Za-z0-9_@]*)\s*$') {
+                            [void] $imports.Add($Matches[1])
+                        }
+                        $cursor++
+                    }
+                }
+                $index = $cursor
+            } else {
+                $index++
+            }
+        }
+    }
+
+    if ($matched -eq 0) {
+        throw "No binary under $BinaryDirectory imports wpcap.dll. Either the capture crate is no longer linked, or the binaries were built without it; nothing needs a stub in that case."
+    }
+
+    return @($imports | Sort-Object)
 }
 
 $devCmd = Find-VisualStudioEnvironment
@@ -134,20 +201,12 @@ development with C++" (Visual Studio) or the MSVC build tools.
 }
 "Using toolchain environment: $devCmd"
 
-$definition = Resolve-DefinitionFile -ImportLibrary $ImportLibrary
-"Using export list: $definition"
+$dumpbin = Find-Dumpbin -VsDevCmd $devCmd
+$script:dumpbin = $dumpbin
+"Using dumpbin: $dumpbin"
 
-# Keep only the EXPORTS section: LIBRARY, comments and ordinals are not wanted, and copying
-# the file verbatim would re-declare the library name that /OUT already sets.
-$exportNames = Get-Content $definition |
-    Select-String -Pattern '^\s+([A-Za-z_][A-Za-z0-9_]*)\s*$' |
-    ForEach-Object { $_.Matches[0].Groups[1].Value } |
-    Sort-Object -Unique
-
-if ($exportNames.Count -eq 0) {
-    throw "No export names parsed from $definition."
-}
-"Parsed $($exportNames.Count) export names."
+$exportNames = Get-RequiredExports -BinaryDirectory $BinaryDirectory
+"Found $($exportNames.Count) wpcap symbol(s) across the compiled test binaries."
 
 New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 

@@ -71,12 +71,6 @@ runs:
         }
         "IKLWA_PCAP_LIB=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-        # The stub generator reads wpcap.def from beside that import library, so the stub's
-        # exports match whatever the binary was linked against.
-        if (-not (Test-Path (Join-Path $lib '..\..\wpcap.def'))) {
-          throw "wpcap.def not found in the SDK. tools/build-stub-wpcap-dll.ps1 generates its export table from it, so a layout change breaks the stub."
-        }
-
     # ------------------------------------------------------------- Frontend
     # Built before cargo runs, not after. `tauri::generate_context!` resolves
     # `frontendDist` at compile time and fails when the bundle is absent -- which is
