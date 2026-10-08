@@ -55,6 +55,7 @@ process attribution, device inventory, DNS correlation, and desktop capture-file
 | `apps/cli` | The `sentinel` command line interface. |
 | `apps/desktop` | The Tauri + React desktop application. |
 | `tools/fixtures` | Generates deterministic PCAP files for demos and tests. |
+| `site` | The download page, generated from `site/release-manifest.json`. |
 
 Dependencies point inward: `platform` and `common` know about nothing; `api` knows about the
 engine; the apps know about `api`. Nothing depends on an app.
@@ -74,6 +75,25 @@ document — architecture, how to run it, how to control it, troubleshooting. St
 | [docs/PACKET_PIPELINE.md](docs/PACKET_PIPELINE.md) | How a frame becomes a connection, and where data can be lost |
 | [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | The detection design, and why it is not implemented yet |
 | [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) | Per-platform drivers, privileges and limitations |
+
+## Downloading
+
+**[`site/index.html`](site/index.html)** is the download page for the IklwaLabs website: one
+self-contained HTML file, no build step and no runtime dependency, ready to serve as-is or drop
+onto a static host.
+
+It is generated from `site/release-manifest.json` by `tools/generate-download-site.py`, the same
+arrangement as the PDF: the manifest holds the facts, the generator reads them back out of the
+code to check them, and CI fails if the committed page drifts from the manifest.
+
+```bash
+python tools/generate-download-site.py           # write site/index.html
+python tools/generate-download-site.py --check   # fail if it is stale, for CI
+```
+
+While no release is published the page says so in plain language and shows the buttons disabled
+with their real filenames, rather than offering links that would 404. Flipping
+`release.published` in the manifest once the artifacts exist turns them into live links.
 
 ## Building from source
 

@@ -1,0 +1,329 @@
+{
+  "$comment": [
+    "Source of truth for the download site. tools/generate-download-site.py reads this file",
+    "and the code, and writes site/index.html. Nothing about a download is hardcoded in the",
+    "generator, so a page can never claim a file the pipeline does not produce.",
+    "",
+    "`published` is false until a release exists. The page renders an honest 'not yet",
+    "published' state with the reason rather than a link that 404s, because a download page",
+    "whose buttons all fail is worse than one that says the build is not out yet.",
+    "",
+    "`asset` is the stable filename the release workflow copies each bundle to. Tauri picks its",
+    "own names for MSIs and NSIS installers, which embed the upstream Tauri template version;",
+    "copying to a stable name means a URL published today still resolves after an upgrade."
+  ],
+  "product": {
+    "name": "Sentinel",
+    "vendor": "IklwaLabs",
+    "tagline": "Local-first network visibility and threat detection.",
+    "summary": "Sentinel watches the traffic on your machine, reconstructs the connections that carry it, stores what it finds in a local database, and tells you what is happening. No account, no cloud service, nothing leaves the machine.",
+    "license": "Apache-2.0",
+    "repository": "https://github.com/IklwaLabs/assegai-sentinel",
+    "reference_pdf": "docs/Sentinel-Reference.pdf"
+  },
+  "repositories": [
+    {
+      "label": "IklwaLabs",
+      "url": "https://github.com/IklwaLabs/assegai-sentinel",
+      "visibility": "private",
+      "note": "Primary repository. Ask IklwaLabs for access."
+    },
+    {
+      "label": "ericalfonce",
+      "url": "https://github.com/ericalfonce/assegai-sentinel",
+      "visibility": "private",
+      "note": "Mirror."
+    }
+  ],
+  "release": {
+    "version": "0.1.0",
+    "tag": "v0.1.0",
+    "published": false,
+    "unpublished_reason": "No GitHub release exists yet for v0.1.0. Tagging the repository starts the build matrix; the artifacts appear here once the release job has published them.",
+    "releases_url": "https://github.com/IklwaLabs/assegai-sentinel/releases",
+    "tag_url": "https://github.com/IklwaLabs/assegai-sentinel/releases/tag/v0.1.0"
+  },
+  "platforms": [
+    {
+      "id": "windows",
+      "name": "Windows",
+      "status": "supported",
+      "driver": "Npcap",
+      "driver_url": "https://npcap.com/",
+      "privilege": "Run as Administrator. Reading frames needs an elevated token; Sentinel reports this through 'sentinel doctor' rather than failing at capture time.",
+      "summary": "NSIS installer and MSI for x86-64. Captures from any adapter Npcap exposes, including a dedicated loopback adapter when Npcap is installed in full mode.",
+      "install": [
+        "Install Npcap from npcap.com first. It is the capture driver; the installer does not bundle it.",
+        "Run Sentinel-0.1.0-windows-x64-setup.exe. The MSI is there if you prefer Windows Installer.",
+        "Launch Sentinel from the Start menu and choose an interface in the sidebar."
+      ],
+      "artifacts": [
+        {
+          "kind": "installer-nsis",
+          "label": "NSIS installer",
+          "asset": "Sentinel-0.1.0-windows-x64-setup.exe",
+          "detail": "Recommended. Installs and adds a Start menu entry."
+        },
+        {
+          "kind": "installer-msi",
+          "label": "MSI package",
+          "asset": "Sentinel-0.1.0-windows-x64.msi",
+          "detail": "For managed deployment."
+        },
+        {
+          "kind": "cli",
+          "label": "Command line interface",
+          "asset": "sentinel-cli-0.1.0-windows-x64.exe",
+          "detail": "Single binary. No installer."
+        }
+      ]
+    },
+    {
+      "id": "linux",
+      "name": "Linux",
+      "status": "supported",
+      "driver": "libpcap",
+      "privilege": "Grant the binary CAP_NET_RAW rather than running everything as root: sudo setcap cap_net_raw,cap_net_admin=eip /path/to/sentinel",
+      "summary": "Debian package and AppImage for x86-64. Loopback capture is supported directly, so local traffic between processes on the machine is visible.",
+      "install": [
+        "sudo dpkg -i Sentinel-0.1.0-linux-x86_64.deb",
+        "or make the AppImage executable and run it: chmod +x Sentinel-0.1.0-linux-x86_64.AppImage",
+        "sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/sentinel   # instead of running as root",
+        "Run 'sentinel doctor' to confirm capture is possible in your session."
+      ],
+      "artifacts": [
+        {
+          "kind": "package-deb",
+          "label": "Debian package",
+          "asset": "Sentinel-0.1.0-linux-x86_64.deb",
+          "detail": "x86-64. Installs the CLI to /usr/bin."
+        },
+        {
+          "kind": "package-appimage",
+          "label": "AppImage",
+          "asset": "Sentinel-0.1.0-linux-x86_64.AppImage",
+          "detail": "No install step. chmod +x, then run."
+        },
+        {
+          "kind": "cli",
+          "label": "Command line interface",
+          "asset": "sentinel-cli-0.1.0-linux-x86_64",
+          "detail": "Single static binary."
+        }
+      ]
+    },
+    {
+      "id": "macos",
+      "name": "macOS",
+      "status": "supported",
+      "driver": "BPF framework (built in)",
+      "privilege": "The process must belong to the access_bpcap group, or run with sudo. An administrator has to arrange this.",
+      "summary": "Disk image and application bundle, universal (Apple silicon and Intel). Unsigned: Gatekeeper refuses to open it until the quarantine attribute is cleared.",
+      "install": [
+        "Open Sentinel-0.1.0-macos-universal.dmg and drag Sentinel to Applications.",
+        "The bundle is not notarised. Right-click it and choose Open, or clear the quarantine flag:",
+        "xattr -d com.apple.quarantine /Applications/Sentinel.app",
+        "Capture additionally needs access_bpcap membership, which an administrator grants."
+      ],
+      "artifacts": [
+        {
+          "kind": "installer-dmg",
+          "label": "Disk image",
+          "asset": "Sentinel-0.1.0-macos-universal.dmg",
+          "detail": "Universal binary. Unsigned."
+        },
+        {
+          "kind": "archive-app",
+          "label": "Application bundle",
+          "asset": "Sentinel-0.1.0-macos-universal.zip",
+          "detail": "For moving it between machines without a disk image."
+        },
+        {
+          "kind": "cli",
+          "label": "Command line interface",
+          "asset": "sentinel-cli-0.1.0-macos-universal",
+          "detail": "Single binary."
+        }
+      ]
+    },
+    {
+      "id": "android",
+      "name": "Android",
+      "status": "partial",
+      "driver": "Tun2Socks (not implemented)",
+      "privilege": "None. Android grants no capture privileges to an ordinary app.",
+      "summary": "Analysis only. The APK lists interfaces and analyses PCAP files offline. Live capture is not implemented and the build reports it as unavailable instead of failing at runtime.",
+      "install": [
+        "Enable developer mode and USB debugging on the device.",
+        "Sideload Sentinel-0.1.0-android.apk with adb install, or from the device's file manager.",
+        "Open a PCAP file from local storage to analyse it. Live capture is not available."
+      ],
+      "artifacts": [
+        {
+          "kind": "package-apk",
+          "label": "APK",
+          "asset": "Sentinel-0.1.0-android.apk",
+          "detail": "Sideload. Offline PCAP analysis only; no live capture."
+        }
+      ]
+    }
+  ],
+  "features": [
+    {
+      "title": "Enumerates real capture interfaces",
+      "body": "Through Npcap on Windows, libpcap on Linux and macOS. Wired, wireless, loopback, tunnel and virtual adapters are classified, and an adapter that cannot be captured says why instead of being offered."
+    },
+    {
+      "title": "Captures live traffic",
+      "body": "From a selected adapter, on a dedicated thread, with backpressure that is counted rather than hidden. An ingress queue that overflows is visible in the interface."
+    },
+    {
+      "title": "Decodes L2 to L4 itself",
+      "body": "Ethernet, VLAN, IPv4, IPv6, ARP, TCP, UDP and ICMP through an own bounds-checked decoder, so truncation and IP fragmentation are handled explicitly rather than guessed at."
+    },
+    {
+      "title": "Reconstructs bidirectional flows",
+      "body": "Keyed on a canonically ordered endpoint pair with initiator detection from port roles, so a connection appears once with both directions attributed correctly."
+    },
+    {
+      "title": "Analyses PCAP files through the same pipeline",
+      "body": "Offline results match live capture exactly, because there is one decoder and one flow engine behind both."
+    },
+    {
+      "title": "Reports incomplete data as incomplete",
+      "body": "Packet loss is tracked separately for the driver, the ingress queue and the decoder, and every surface says which of the three lost frames."
+    },
+    {
+      "title": "Stores everything in SQLite, locally",
+      "body": "One batched writer thread, append-only migrations, configurable retention. There is no code path that opens an outbound connection."
+    }
+  ],
+  "not_implemented": [
+    {
+      "title": "Threat rules",
+      "body": "No detection engine ships in this release. The rule model and its evaluation contract are designed in docs/DETECTION_ENGINE.md, but presenting a rule that cannot fire would be worse than showing nothing."
+    },
+    {
+      "title": "Process attribution",
+      "body": "Sentinel reports which process owns a connection only where the platform exposes it without a kernel driver. Nothing is guessed from port numbers."
+    },
+    {
+      "title": "Device inventory",
+      "body": "There is no list of devices on the network. Sentinel observes this machine's traffic, not the topology around it."
+    },
+    {
+      "title": "DNS correlation",
+      "body": "DNS queries are decoded and shown as flows. They are not resolved into hostnames or joined against other traffic yet."
+    }
+  ],
+  "cli_commands": [
+    {
+      "command": "sentinel interfaces",
+      "purpose": "List capture interfaces and whether each one is ready."
+    },
+    {
+      "command": "sentinel doctor",
+      "purpose": "Report whether capture is possible in this process, and what to do when it is not."
+    },
+    {
+      "command": "sentinel capture --duration 30",
+      "purpose": "Capture live traffic for a fixed window."
+    },
+    {
+      "command": "sentinel status",
+      "purpose": "What the current session is doing."
+    },
+    {
+      "command": "sentinel analyze capture.pcap",
+      "purpose": "Analyse a PCAP file offline, no privileges needed."
+    },
+    {
+      "command": "sentinel export flows.csv",
+      "purpose": "Export stored flows as CSV or JSON."
+    },
+    {
+      "command": "sentinel prune",
+      "purpose": "Apply retention now, with --dry-run to see what would go."
+    },
+    {
+      "command": "sentinel version",
+      "purpose": "Version, schema and platform."
+    }
+  ],
+  "build_from_source": {
+    "prerequisites": "Rust 1.95 or newer, Node.js 20 or newer, and a capture driver: Npcap with its SDK on Windows, libpcap-dev on Linux, nothing on macOS.",
+    "commands": [
+      "git clone https://github.com/IklwaLabs/assegai-sentinel.git",
+      "cd assegai-sentinel",
+      "cargo build --release",
+      "cargo test",
+      "cargo build --release -p sentinel-desktop --features custom-protocol",
+      "cd apps/desktop/frontend && npm install && npm run build"
+    ],
+    "notes": [
+      "The custom-protocol feature is not optional. Without it the desktop binary looks for the Vite dev server instead of the assets embedded in the executable, and opens a black window.",
+      "The repository is private. You need an invitation from IklwaLabs to clone it.",
+      "docs/Sentinel-Reference.pdf is the whole product in one document: architecture, how to run it, how to control it, troubleshooting."
+    ]
+  },
+  "verification": {
+    "body": "Every platform's artifact set includes a SHA256SUMS.txt. Compare it before running anything:",
+    "command": "sha256sum -c SHA256SUMS.txt",
+    "notes": [
+      "Artifacts are served over TLS from the GitHub release, so the checksum is a check against tampering in transit, not against a compromised account.",
+      "macOS artifacts are unsigned. That is why the checksum matters more there than elsewhere."
+    ]
+  },
+  "faq": [
+    {
+      "q": "Does anything leave my machine?",
+      "a": "No. There is no code path in Sentinel that opens an outbound connection. The database is a local SQLite file, and the interface is local. SECURITY.md documents this and the reasoning behind it."
+    },
+    {
+      "q": "Why does capture fail on Windows until I run as Administrator?",
+      "a": "Reading frames needs an elevated token. Sentinel reports 'notElevated' through 'sentinel doctor' before you start a session, rather than failing later with a driver error code."
+    },
+    {
+      "q": "Why is the macOS build unsigned?",
+      "a": "Notarisation needs an Apple developer account. Until there is one, right-click the app and choose Open, or clear the quarantine attribute. The SHA256SUMS.txt file lets you verify the download first."
+    },
+    {
+      "q": "Can the Android build capture live traffic?",
+      "a": "No. It needs a userspace TCP/IP stack over an app-owned VPN slot, which is not implemented. The APK analyses PCAP files and lists interfaces, and reports live capture as unavailable rather than pretending."
+    },
+    {
+      "q": "Where is my data stored?",
+      "a": "In a SQLite database under your platform's application-data directory, named by sentinel-platform so each platform uses its own conventions. 'sentinel version' reports the schema version."
+    },
+    {
+      "q": "Does it detect threats?",
+      "a": "Not in this release. The product is named for it and the roadmap commits to it, but v0.1.0 ships the capture-to-storage pipeline and none of the rules. docs/DETECTION_ENGINE.md explains the design."
+    }
+  ],
+  "footer": {
+    "copyright": "IklwaLabs",
+    "contact": "https://github.com/IklwaLabs",
+    "links": [
+      {
+        "label": "Repository",
+        "url": "https://github.com/IklwaLabs/assegai-sentinel"
+      },
+      {
+        "label": "Releases",
+        "url": "https://github.com/IklwaLabs/assegai-sentinel/releases"
+      },
+      {
+        "label": "SECURITY.md",
+        "url": "https://github.com/IklwaLabs/assegai-sentinel/blob/main/SECURITY.md"
+      },
+      {
+        "label": "PLATFORM_SUPPORT.md",
+        "url": "https://github.com/IklwaLabs/assegai-sentinel/blob/main/docs/PLATFORM_SUPPORT.md"
+      },
+      {
+        "label": "DETECTION_ENGINE.md",
+        "url": "https://github.com/IklwaLabs/assegai-sentinel/blob/main/docs/DETECTION_ENGINE.md"
+      }
+    ]
+  }
+}

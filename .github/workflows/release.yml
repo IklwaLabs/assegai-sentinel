@@ -74,18 +74,20 @@ jobs:
         env:
           IKLWA_HOME: .sentinel-ci
 
+      # Renamed to the names site/release-manifest.json advertises. Tauri emits its own names,
+      # which embed the bundle target and locale, and publishing those would mean a download
+      # URL that changes whenever Tauri is upgraded.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Collect artifacts
-        shell: bash
         run: |
-          mkdir -p artifacts
-          cp target/release/sentinel artifacts/sentinel-x86_64-unknown-linux-gnu
-          cp target/release/bundle/debian/*.deb artifacts/ 2>/dev/null || true
-          cp target/release/bundle/appimage/*.AppImage artifacts/ 2>/dev/null || true
+          python tools/collect-artifacts.py --platform linux --staging artifacts
           # A tarball keeps the AppImage executable bit, which an artifact upload does not
           # reliably preserve for a raw file.
-          for f in target/release/bundle/appimage/*.AppImage; do
-            [ -e "$f" ] && tar czf "artifacts/$(basename "$f").tar.gz" -C "$(dirname "$f")" "$(basename "$f")"
-          done
+          tar czf artifacts/Sentinel-0.1.0-linux-x86_64.AppImage.tar.gz \
+              -C artifacts Sentinel-0.1.0-linux-x86_64.AppImage
           ( cd artifacts && sha256sum * > SHA256SUMS.txt )
           ls -la artifacts/
 
@@ -123,11 +125,14 @@ jobs:
       # Unsigned macOS builds are quarantined by Gatekeeper on open, so the checksum is
       # published alongside the file: a user who verifies it can clear the quarantine flag
       # themselves.
+      # Renamed to the names site/release-manifest.json advertises; see the Linux job.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Package artifacts
         run: |
-          mkdir -p artifacts
-          ditto -c -k --keepParent "target/release/bundle/macos/Sentinel.app" "artifacts/Sentinel-macos-universal.zip"
-          cp target/release/bundle/dmg/*.dmg artifacts/ 2>/dev/null || true
+          python tools/collect-artifacts.py --platform macos --staging artifacts
           ( cd artifacts && shasum -a 256 * > SHA256SUMS.txt && cat SHA256SUMS.txt )
           ls -la artifacts/
 
@@ -158,16 +163,18 @@ jobs:
             --config apps/desktop/src-tauri/tauri.conf.json `
             --bundles nsis,msi
 
-      # Npcap is a runtime dependency of the shipped binary, so the installer has to appear in
-      # the bundle's own installer rather than being left to the user to discover. Without it
-      # the application starts and then reports every interface as unavailable.
+      # Renamed to the names site/release-manifest.json advertises; see the Linux job.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The collect step is not wrapped in `|| true`. An artifact declared on the download page
+      # that this job fails to produce has to stop the release, not ship a page with a dead link
+      # on it.
       - name: Collect artifacts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force artifacts | Out-Null
-          Copy-Item target/release/sentinel.exe artifacts/
-          Copy-Item target/release/bundle/nsis/*.exe artifacts/ -ErrorAction SilentlyContinue
-          Copy-Item target/release/bundle/msi/*.msi artifacts/ -ErrorAction SilentlyContinue
+          python tools/collect-artifacts.py --platform windows --staging artifacts
           Get-ChildItem artifacts | Format-Table Name, Length
 
       - uses: actions/upload-artifact@v4
@@ -225,10 +232,10 @@ jobs:
         env:
           IKLWA_HOME: .sentinel-ci
 
+      # Renamed to the name site/release-manifest.json advertises; see the Linux job.
       - name: Collect the APK
         run: |
-          mkdir -p artifacts
-          find apps/desktop/src-tauri/gen/android -name "*.apk" -exec cp {} artifacts/ \;
+          python tools/collect-artifacts.py --platform android --staging artifacts
           ( cd artifacts && sha256sum * > SHA256SUMS.txt )
           ls -la artifacts/
 

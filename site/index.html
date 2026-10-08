@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel &middot; Download &middot; IklwaLabs</title>
+<meta name="description" content="Sentinel watches the traffic on your machine, reconstructs the connections that carry it, stores what it finds in a local database, and tells you what is happening. No account, no cloud service, nothing leaves the machine.">
+<meta name="color-scheme" content="dark light">
+<meta property="og:title" content="Sentinel 0.1.0">
+<meta property="og:description" content="Sentinel watches the traffic on your machine, reconstructs the connections that carry it, stores what it finds in a local database, and tells you what is happening. No account, no cloud service, nothing leaves the machine.">
+<meta property="og:type" content="website">
+<link rel="canonical" href="https://github.com/IklwaLabs/assegai-sentinel">
+<style>
+
+/*
+ * Styling for the download page.
+ *
+ * Deliberately the same palette as the application, so the page and the product read as one
+ * thing. Severity colours are not used at all: nothing on this page is an alert, and using
+ * red for "not published" would be crying wolf.
+ *
+ * No web fonts, no CDN, no build step. The page has to render correctly with no network
+ * access beyond its own host, in a web view that blocks third parties, and when printed.
+ */
+:root {
+  --surface-base: #0b0d10;
+  --surface-raised: #111419;
+  --surface-overlay: #161a20;
+  --surface-input: #1b2027;
+
+  --border-subtle: #1e232b;
+  --border-default: #242a33;
+  --border-strong: #333b47;
+
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --text-faint: #4b5563;
+
+  --accent: #f97316;
+  --accent-hover: #fb8b3c;
+  --accent-muted: #7c3a10;
+  --accent-contrast: #1a0d03;
+
+  --severity-medium: #f5b53d;
+  --severity-safe: #3f9d6b;
+
+  --font-sans: 'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --measure: 68ch;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --surface-base: #ffffff;
+    --surface-raised: #f7f8fa;
+    --surface-overlay: #ffffff;
+    --surface-input: #eef0f4;
+    --border-subtle: #e6e8ec;
+    --border-default: #d8dce2;
+    --border-strong: #b9c0c9;
+    --text-primary: #11151b;
+    --text-secondary: #4a5462;
+    --text-muted: #6b7583;
+    --text-faint: #97a0ad;
+    --accent-muted: #fed7c4;
+    --accent-contrast: #ffffff;
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 0 var(--space-5);
+}
+
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+
+code, pre { font-family: var(--font-mono); font-size: 0.875em; }
+
+code {
+  background: var(--surface-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+pre.code-block {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
+}
+pre.code-block code { background: none; border: none; padding: 0; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---------------------------------------------------------------- masthead */
+
+.masthead {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-4) 0;
+  position: sticky;
+  top: 0;
+  background: var(--surface-base);
+  z-index: 10;
+}
+.masthead .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(140deg, var(--accent) 0%, #dc2626 100%);
+  flex: none;
+}
+.brand-sub {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.875rem;
+}
+.version-tag {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+
+/* ------------------------------------------------------------------- hero */
+
+.hero { padding: var(--space-7) 0 var(--space-6); }
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1.15;
+  margin: 0 0 var(--space-4);
+  letter-spacing: -0.02em;
+}
+.hero-lede {
+  font-size: 1.125rem;
+  color: var(--text-secondary);
+  max-width: var(--measure);
+  margin: 0 0 var(--space-5);
+}
+.pipeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-bottom: var(--space-5);
+}
+.pipeline-step {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.55rem;
+}
+.pipeline-arrow { color: var(--text-faint); }
+.pipeline-meta { color: var(--text-faint); margin-left: var(--space-2); }
+
+.hero-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+
+.btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-default);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-weight: 500;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.btn-label { font-size: 0.9375rem; }
+.btn-file {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+.btn-primary .btn-file { color: var(--accent-contrast); opacity: 0.75; }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--accent-contrast); }
+.btn-ghost:hover { background: var(--surface-overlay); border-color: var(--border-strong); }
+.btn:visited, .btn:link { color: var(--text-primary); }
+.btn-primary:visited, .btn-primary:link { color: var(--accent-contrast); }
+
+/*
+ * A disabled download still has to be legible. Removing it entirely would leave the page
+ * looking empty and unexplained; dimming it and saying why is honest.
+ */
+.btn-disabled {
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+  border-style: dashed;
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+.btn-disabled .btn-file { color: var(--text-faint); }
+
+/* ---------------------------------------------------------------- notices */
+
+.notice {
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  padding: var(--space-4);
+  margin: 0 0 var(--space-6);
+  max-width: var(--measure);
+  color: var(--text-secondary);
+}
+.notice strong { color: var(--text-primary); }
+.notice-warn { border-left-color: var(--severity-medium); }
+.notice-ok { border-left-color: var(--severity-safe); }
+
+/* ------------------------------------------------------------------- tabs */
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-6);
+  overflow-x: auto;
+}
+.tab {
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.tab:hover { color: var(--text-primary); }
+.tab.is-active { color: var(--text-primary); border-bottom-color: var(--accent); }
+.tab-badge {
+  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  color: var(--severity-medium);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+
+/* -------------------------------------------------------------- platforms */
+
+.platform {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  padding: var(--space-5);
+  margin-bottom: var(--space-5);
+  scroll-margin-top: 5rem;
+}
+.platform-head { margin-bottom: var(--space-4); }
+.platform-head h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 1.375rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.platform-summary { margin: 0; color: var(--text-secondary); max-width: var(--measure); }
+
+.pill {
+  font-size: 0.75rem;
+  font-weight: 500;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  border: 1px solid currentColor;
+}
+.pill-ok { color: var(--severity-safe); }
+.pill-warn { color: var(--severity-medium); }
+.pill-muted { color: var(--text-muted); }
+
+.platform-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-6);
+}
+@media (max-width: 46rem) {
+  .platform-grid { grid-template-columns: minmax(0, 1fr); gap: var(--space-5); }
+}
+
+.platform h4, .section h2 { margin: 0 0 var(--space-3); font-size: 1rem; }
+.platform-requirements h4 + dl,
+.platform-requirements dl + h4 { margin-top: var(--space-5); }
+
+.artifacts { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.artifact .btn { width: 100%; }
+.artifact-detail {
+  margin: var(--space-1) 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+}
+
+dl { margin: 0; }
+dt { font-weight: 500; color: var(--text-primary); font-size: 0.875rem; }
+dd { margin: var(--space-1) 0 var(--space-3); color: var(--text-secondary); font-size: 0.875rem; }
+
+.steps, .note-list, .gap-list { margin: 0; padding-left: 1.15rem; color: var(--text-secondary); }
+.steps li, .note-list li, .gap-list li { margin-bottom: var(--space-2); }
+.note-list { font-size: 0.875rem; color: var(--text-muted); }
+
+/* --------------------------------------------------------------- sections */
+
+.section { padding: var(--space-6) 0; border-top: 1px solid var(--border-subtle); scroll-margin-top: 5rem; }
+.section h2 { font-size: 1.5rem; }
+.section-lede { color: var(--text-secondary); max-width: var(--measure); margin: 0 0 var(--space-4); }
+.section-note { color: var(--text-muted); font-size: 0.875rem; }
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: var(--space-4);
+}
+.feature {
+  border: 1px solid var(--border-subtle);
+  border-left: 2px solid var(--accent-muted);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  background: var(--surface-raised);
+}
+.feature h4 { margin: 0 0 var(--space-2); font-size: 0.9375rem; }
+.feature p { margin: 0; color: var(--text-secondary); font-size: 0.875rem; }
+
+.cli-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+.cli-table th, .cli-table td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+}
+.cli-table th { color: var(--text-muted); font-weight: 500; font-size: 0.8125rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.cli-table td:last-child { color: var(--text-secondary); }
+
+.faq-item {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-2);
+  background: var(--surface-raised);
+}
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text-primary);
+  list-style-position: outside;
+}
+.faq-item summary::marker { color: var(--accent); }
+.faq-item p { margin: var(--space-3) 0 0; color: var(--text-secondary); max-width: var(--measure); }
+
+/* ----------------------------------------------------------------- footer */
+
+.site-footer {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-6) 0;
+  margin-top: var(--space-6);
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+.footer-brand { margin: 0; font-weight: 600; }
+.footer-license { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: 0.875rem; }
+.footer-links { display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: flex-start; }
+.footer-links a { font-size: 0.875rem; color: var(--text-secondary); }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------------------ print */
+
+@media print {
+  :root {
+    --surface-base: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-overlay: #ffffff;
+    --surface-input: #f2f2f2;
+    --text-primary: #000000;
+    --text-secondary: #333333;
+    --text-muted: #555555;
+    --text-faint: #777777;
+    --border-subtle: #cccccc;
+    --border-default: #999999;
+  }
+  body { background: #fff; }
+  .masthead { position: static; }
+  .btn-disabled { border-style: solid; }
+  .tabs { display: none; }
+  .platform, .feature, .faq-item { break-inside: avoid; }
+  .faq-item[open] p, .faq-item p { display: block; }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 0.75em; color: #555555; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>Sentinel <span class="brand-sub">by IklwaLabs</span></span>
+    </a>
+    <span class="version-tag">v0.1.0</span>
+  </div>
+</header>
+
+<main id="top">
+
+  <section class="hero wrap">
+    <h1>Local-first network visibility and threat detection.</h1>
+    <p class="hero-lede">Sentinel watches the traffic on your machine, reconstructs the connections that carry it, stores what it finds in a local database, and tells you what is happening. No account, no cloud service, nothing leaves the machine.</p>
+    <p class="pipeline">
+      <span class="pipeline-step">capture</span><span class="pipeline-step">decode</span><span class="pipeline-step">flow engine</span><span class="pipeline-step">detection</span><span class="pipeline-step">SQLite</span><span class="pipeline-step">interface</span><span class="pipeline-arrow" aria-hidden="true"><span class="pipeline-arrow" aria-hidden="true">&rarr;</span><span class="pipeline-arrow" aria-hidden="true">&rarr;</span><span class="pipeline-arrow" aria-hidden="true">&rarr;</span><span class="pipeline-arrow" aria-hidden="true">&rarr;</span></span>
+      <span class="pipeline-meta">L2&ndash;L4 decoded in Rust, stored in a local SQLite database.</span>
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#platform-windows">
+        <span class="btn-label">Get Sentinel</span>
+        <span class="btn-file">Windows &middot; Linux &middot; macOS &middot; Android</span>
+      </a>
+      <a class="btn btn-ghost" href="#build">
+        <span class="btn-label">Build from source</span>
+        <span class="btn-file">Rust 1.95+ &middot; Node 20+</span>
+      </a>
+    </div>
+  </section>
+
+  <div class="wrap">
+    
+    <div class="notice notice-warn">
+      <strong>No published download yet.</strong>
+      No GitHub release exists yet for v0.1.0. Tagging the repository starts the build matrix; the artifacts appear here once the release job has published them.
+      Artifacts appear on the <a href="https://github.com/IklwaLabs/assegai-sentinel/releases" rel="noopener">releases page</a> once they are cut.
+    </div>
+
+    <section id="downloads">
+      <h2>Download</h2>
+      <nav class="tabs" aria-label="Platforms"><a class="tab" href="#platform-windows">Windows</a><a class="tab" href="#platform-linux">Linux</a><a class="tab" href="#platform-macos">macOS</a><a class="tab" href="#platform-android">Android<span class="tab-badge">Analysis only</span></a></nav>
+      
+    <section class="platform" id="platform-windows">
+      <header class="platform-head">
+        <h3>Windows <span class="pill pill-ok">Supported</span></h3>
+        <p class="platform-summary">NSIS installer and MSI for x86-64. Captures from any adapter Npcap exposes, including a dedicated loopback adapter when Npcap is installed in full mode.</p>
+      </header>
+      <div class="platform-grid">
+        <div class="platform-downloads">
+          <h4>Downloads</h4>
+          <ul class="artifacts"><li class="artifact artifact-installer-nsis"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">Sentinel-0.1.0-windows-x64-setup.exe</span></span><p class="artifact-detail">NSIS installer. Recommended. Installs and adds a Start menu entry.</p></li><li class="artifact artifact-installer-msi"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">Sentinel-0.1.0-windows-x64.msi</span></span><p class="artifact-detail">MSI package. For managed deployment.</p></li><li class="artifact artifact-cli"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">sentinel-cli-0.1.0-windows-x64.exe</span></span><p class="artifact-detail">Command line interface. Single binary. No installer.</p></li></ul>
+        </div>
+        <div class="platform-requirements">
+          <h4>Requirements</h4>
+          <dl>
+            <dt>Capture driver</dt>
+            <dd> <a href="https://npcap.com/" rel="noopener nofollow">Npcap</a></dd>
+            <dt>Privileges</dt>
+            <dd>Run as Administrator. Reading frames needs an elevated token; Sentinel reports this through &#x27;sentinel doctor&#x27; rather than failing at capture time.</dd>
+          </dl>
+          <h4>Installing</h4>
+          <ol class="steps"><li><code>Install Npcap from npcap.com first. It is the capture driver; the installer does not bundle it.</code></li><li><code>Run Sentinel-0.1.0-windows-x64-setup.exe. The MSI is there if you prefer Windows Installer.</code></li><li><code>Launch Sentinel from the Start menu and choose an interface in the sidebar.</code></li></ol>
+        </div>
+      </div>
+    </section>
+    <section class="platform" id="platform-linux">
+      <header class="platform-head">
+        <h3>Linux <span class="pill pill-ok">Supported</span></h3>
+        <p class="platform-summary">Debian package and AppImage for x86-64. Loopback capture is supported directly, so local traffic between processes on the machine is visible.</p>
+      </header>
+      <div class="platform-grid">
+        <div class="platform-downloads">
+          <h4>Downloads</h4>
+          <ul class="artifacts"><li class="artifact artifact-package-deb"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">Sentinel-0.1.0-linux-x86_64.deb</span></span><p class="artifact-detail">Debian package. x86-64. Installs the CLI to /usr/bin.</p></li><li class="artifact artifact-package-appimage"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">Sentinel-0.1.0-linux-x86_64.AppImage</span></span><p class="artifact-detail">AppImage. No install step. chmod +x, then run.</p></li><li class="artifact artifact-cli"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">sentinel-cli-0.1.0-linux-x86_64</span></span><p class="artifact-detail">Command line interface. Single static binary.</p></li></ul>
+        </div>
+        <div class="platform-requirements">
+          <h4>Requirements</h4>
+          <dl>
+            <dt>Capture driver</dt>
+            <dd> libpcap</dd>
+            <dt>Privileges</dt>
+            <dd>Grant the binary CAP_NET_RAW rather than running everything as root: sudo setcap cap_net_raw,cap_net_admin=eip /path/to/sentinel</dd>
+          </dl>
+          <h4>Installing</h4>
+          <ol class="steps"><li><code>sudo dpkg -i Sentinel-0.1.0-linux-x86_64.deb</code></li><li><code>or make the AppImage executable and run it: chmod +x Sentinel-0.1.0-linux-x86_64.AppImage</code></li><li><code>sudo setcap cap_net_raw,cap_net_admin=eip /usr/bin/sentinel   # instead of running as root</code></li><li><code>Run &#x27;sentinel doctor&#x27; to confirm capture is possible in your session.</code></li></ol>
+        </div>
+      </div>
+    </section>
+    <section class="platform" id="platform-macos">
+      <header class="platform-head">
+        <h3>macOS <span class="pill pill-ok">Supported</span></h3>
+        <p class="platform-summary">Disk image and application bundle, universal (Apple silicon and Intel). Unsigned: Gatekeeper refuses to open it until the quarantine attribute is cleared.</p>
+      </header>
+      <div class="platform-grid">
+        <div class="platform-downloads">
+          <h4>Downloads</h4>
+          <ul class="artifacts"><li class="artifact artifact-installer-dmg"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">Sentinel-0.1.0-macos-universal.dmg</span></span><p class="artifact-detail">Disk image. Universal binary. Unsigned.</p></li><li class="artifact artifact-archive-app"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">Sentinel-0.1.0-macos-universal.zip</span></span><p class="artifact-detail">Application bundle. For moving it between machines without a disk image.</p></li><li class="artifact artifact-cli"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">sentinel-cli-0.1.0-macos-universal</span></span><p class="artifact-detail">Command line interface. Single binary.</p></li></ul>
+        </div>
+        <div class="platform-requirements">
+          <h4>Requirements</h4>
+          <dl>
+            <dt>Capture driver</dt>
+            <dd> BPF framework (built in)</dd>
+            <dt>Privileges</dt>
+            <dd>The process must belong to the access_bpcap group, or run with sudo. An administrator has to arrange this.</dd>
+          </dl>
+          <h4>Installing</h4>
+          <ol class="steps"><li><code>Open Sentinel-0.1.0-macos-universal.dmg and drag Sentinel to Applications.</code></li><li><code>The bundle is not notarised. Right-click it and choose Open, or clear the quarantine flag:</code></li><li><code>xattr -d com.apple.quarantine /Applications/Sentinel.app</code></li><li><code>Capture additionally needs access_bpcap membership, which an administrator grants.</code></li></ol>
+        </div>
+      </div>
+    </section>
+    <section class="platform" id="platform-android">
+      <header class="platform-head">
+        <h3>Android <span class="pill pill-warn">Analysis only</span></h3>
+        <p class="platform-summary">Analysis only. The APK lists interfaces and analyses PCAP files offline. Live capture is not implemented and the build reports it as unavailable instead of failing at runtime.</p>
+      </header>
+      <div class="platform-grid">
+        <div class="platform-downloads">
+          <h4>Downloads</h4>
+          <ul class="artifacts"><li class="artifact artifact-package-apk"><span class="btn btn-disabled" aria-disabled="true"><span class="btn-label">Not yet published</span><span class="btn-file">Sentinel-0.1.0-android.apk</span></span><p class="artifact-detail">APK. Sideload. Offline PCAP analysis only; no live capture.</p></li></ul>
+        </div>
+        <div class="platform-requirements">
+          <h4>Requirements</h4>
+          <dl>
+            <dt>Capture driver</dt>
+            <dd> Tun2Socks (not implemented)</dd>
+            <dt>Privileges</dt>
+            <dd>None. Android grants no capture privileges to an ordinary app.</dd>
+          </dl>
+          <h4>Installing</h4>
+          <ol class="steps"><li><code>Enable developer mode and USB debugging on the device.</code></li><li><code>Sideload Sentinel-0.1.0-android.apk with adb install, or from the device&#x27;s file manager.</code></li><li><code>Open a PCAP file from local storage to analyse it. Live capture is not available.</code></li></ol>
+        </div>
+      </div>
+    </section>
+    </section>
+
+    <section class="section" id="features">
+      <h2>What it does</h2>
+      <div class="feature-grid"><li class="feature"><h4>Enumerates real capture interfaces</h4><p>Through Npcap on Windows, libpcap on Linux and macOS. Wired, wireless, loopback, tunnel and virtual adapters are classified, and an adapter that cannot be captured says why instead of being offered.</p></li><li class="feature"><h4>Captures live traffic</h4><p>From a selected adapter, on a dedicated thread, with backpressure that is counted rather than hidden. An ingress queue that overflows is visible in the interface.</p></li><li class="feature"><h4>Decodes L2 to L4 itself</h4><p>Ethernet, VLAN, IPv4, IPv6, ARP, TCP, UDP and ICMP through an own bounds-checked decoder, so truncation and IP fragmentation are handled explicitly rather than guessed at.</p></li><li class="feature"><h4>Reconstructs bidirectional flows</h4><p>Keyed on a canonically ordered endpoint pair with initiator detection from port roles, so a connection appears once with both directions attributed correctly.</p></li><li class="feature"><h4>Analyses PCAP files through the same pipeline</h4><p>Offline results match live capture exactly, because there is one decoder and one flow engine behind both.</p></li><li class="feature"><h4>Reports incomplete data as incomplete</h4><p>Packet loss is tracked separately for the driver, the ingress queue and the decoder, and every surface says which of the three lost frames.</p></li><li class="feature"><h4>Stores everything in SQLite, locally</h4><p>One batched writer thread, append-only migrations, configurable retention. There is no code path that opens an outbound connection.</p></li></div>
+    </section>
+
+    
+    <section class="section" id="not-implemented">
+      <h2>Not in this release</h2>
+      <p class="section-lede">
+        These are absent from the interface rather than faked. A threat rule that cannot fire,
+        or a device list inferred from nothing, would be worse than an honest gap.
+      </p>
+      <ul class="gap-list"><li><strong>Threat rules.</strong> No detection engine ships in this release. The rule model and its evaluation contract are designed in docs/DETECTION_ENGINE.md, but presenting a rule that cannot fire would be worse than showing nothing.</li><li><strong>Process attribution.</strong> Sentinel reports which process owns a connection only where the platform exposes it without a kernel driver. Nothing is guessed from port numbers.</li><li><strong>Device inventory.</strong> There is no list of devices on the network. Sentinel observes this machine&#x27;s traffic, not the topology around it.</li><li><strong>DNS correlation.</strong> DNS queries are decoded and shown as flows. They are not resolved into hostnames or joined against other traffic yet.</li></ul>
+    </section>
+    
+    <section class="section" id="cli">
+      <h2>Command line</h2>
+      <p class="section-lede">
+        The CLI is a thin client over the same engine as the desktop application, so the two
+        cannot disagree about what your network is doing.
+      </p>
+      <table class="cli-table">
+        <thead><tr><th>Command</th><th>Purpose</th></tr></thead>
+        <tbody><tr><td><code>sentinel interfaces</code></td><td>List capture interfaces and whether each one is ready.</td></tr><tr><td><code>sentinel doctor</code></td><td>Report whether capture is possible in this process, and what to do when it is not.</td></tr><tr><td><code>sentinel capture --duration 30</code></td><td>Capture live traffic for a fixed window.</td></tr><tr><td><code>sentinel status</code></td><td>What the current session is doing.</td></tr><tr><td><code>sentinel analyze capture.pcap</code></td><td>Analyse a PCAP file offline, no privileges needed.</td></tr><tr><td><code>sentinel export flows.csv</code></td><td>Export stored flows as CSV or JSON.</td></tr><tr><td><code>sentinel prune</code></td><td>Apply retention now, with --dry-run to see what would go.</td></tr><tr><td><code>sentinel version</code></td><td>Version, schema and platform.</td></tr></tbody>
+      </table>
+      <p class="section-note">Add <code>--json</code> for machine-readable output, <code>-v</code>
+      for more detail, <code>-q</code> for less.</p>
+    </section>
+    
+    <section class="section" id="build">
+      <h2>Build from source</h2>
+      <p class="section-lede">Rust 1.95 or newer, Node.js 20 or newer, and a capture driver: Npcap with its SDK on Windows, libpcap-dev on Linux, nothing on macOS.</p>
+      <ol class="code-block"><li><code>git clone https://github.com/IklwaLabs/assegai-sentinel.git</code></li><li><code>cd assegai-sentinel</code></li><li><code>cargo build --release</code></li><li><code>cargo test</code></li><li><code>cargo build --release -p sentinel-desktop --features custom-protocol</code></li><li><code>cd apps/desktop/frontend &amp;&amp; npm install &amp;&amp; npm run build</code></li></ol>
+      <ul class="note-list"><li>The custom-protocol feature is not optional. Without it the desktop binary looks for the Vite dev server instead of the assets embedded in the executable, and opens a black window.</li><li>The repository is private. You need an invitation from IklwaLabs to clone it.</li><li>docs/Sentinel-Reference.pdf is the whole product in one document: architecture, how to run it, how to control it, troubleshooting.</li></ul>
+    </section>
+    
+    <section class="section" id="verify">
+      <h2>Verify a download</h2>
+      <p class="section-lede">Every platform&#x27;s artifact set includes a SHA256SUMS.txt. Compare it before running anything:</p>
+      <pre class="code-block"><code>sha256sum -c SHA256SUMS.txt</code></pre>
+      <ul class="note-list"><li>Artifacts are served over TLS from the GitHub release, so the checksum is a check against tampering in transit, not against a compromised account.</li><li>macOS artifacts are unsigned. That is why the checksum matters more there than elsewhere.</li></ul>
+    </section>
+    
+    <section class="section" id="faq">
+      <h2>Questions</h2>
+      <div class="faq"><details class="faq-item"><summary>Does anything leave my machine?</summary><p>No. There is no code path in Sentinel that opens an outbound connection. The database is a local SQLite file, and the interface is local. SECURITY.md documents this and the reasoning behind it.</p></details><details class="faq-item"><summary>Why does capture fail on Windows until I run as Administrator?</summary><p>Reading frames needs an elevated token. Sentinel reports &#x27;notElevated&#x27; through &#x27;sentinel doctor&#x27; before you start a session, rather than failing later with a driver error code.</p></details><details class="faq-item"><summary>Why is the macOS build unsigned?</summary><p>Notarisation needs an Apple developer account. Until there is one, right-click the app and choose Open, or clear the quarantine attribute. The SHA256SUMS.txt file lets you verify the download first.</p></details><details class="faq-item"><summary>Can the Android build capture live traffic?</summary><p>No. It needs a userspace TCP/IP stack over an app-owned VPN slot, which is not implemented. The APK analyses PCAP files and lists interfaces, and reports live capture as unavailable rather than pretending.</p></details><details class="faq-item"><summary>Where is my data stored?</summary><p>In a SQLite database under your platform&#x27;s application-data directory, named by sentinel-platform so each platform uses its own conventions. &#x27;sentinel version&#x27; reports the schema version.</p></details><details class="faq-item"><summary>Does it detect threats?</summary><p>Not in this release. The product is named for it and the roadmap commits to it, but v0.1.0 ships the capture-to-storage pipeline and none of the rules. docs/DETECTION_ENGINE.md explains the design.</p></details></div>
+    </section>
+  </div>
+
+</main>
+
+
+    <footer class="site-footer">
+      <div>
+        <p class="footer-brand">IklwaLabs &middot; Sentinel 0.1.0</p>
+        <p class="footer-license">Apache-2.0 licensed.</p>
+      </div>
+      <nav class="footer-links" aria-label="Documentation"><a href="https://github.com/IklwaLabs/assegai-sentinel" rel="noopener">Repository</a><a href="https://github.com/IklwaLabs/assegai-sentinel/releases" rel="noopener">Releases</a><a href="https://github.com/IklwaLabs/assegai-sentinel/blob/main/SECURITY.md" rel="noopener">SECURITY.md</a><a href="https://github.com/IklwaLabs/assegai-sentinel/blob/main/docs/PLATFORM_SUPPORT.md" rel="noopener">PLATFORM_SUPPORT.md</a><a href="https://github.com/IklwaLabs/assegai-sentinel/blob/main/docs/DETECTION_ENGINE.md" rel="noopener">DETECTION_ENGINE.md</a></nav>
+    </footer>
+
+</body>
+</html>

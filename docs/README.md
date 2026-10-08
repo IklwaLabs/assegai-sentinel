@@ -43,6 +43,27 @@ python tools/generate-reference-pdf.py
 The PDF is committed alongside its generator so a reader who clones the repository has the
 document without needing Python.
 
+## The download page is generated too
+
+[`site/index.html`](../site/index.html) is the page served on the IklwaLabs website. It comes
+from [`site/release-manifest.json`](../site/release-manifest.json) via
+[`tools/generate-download-site.py`](../tools/generate-download-site.py), for the same reason: a
+download page that offers a file the pipeline does not produce is a support ticket waiting to
+happen.
+
+The generator does not trust the manifest. It reads the version from `Cargo.toml`, the product
+name from `tauri.conf.json` and the command list from the CLI's own enum, and refuses to write a
+page that disagrees with any of them. It also checks that every in-page link resolves to a real
+anchor.
+
+```bash
+python tools/generate-download-site.py           # write site/index.html
+python tools/generate-download-site.py --check   # fail if stale
+```
+
+While no release is published, the page renders its buttons disabled with the filenames they
+will use, and says why. It never renders a link to a file that does not exist.
+
 ## Quick start
 
 ```bash

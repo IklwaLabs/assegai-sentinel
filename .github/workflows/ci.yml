@@ -139,3 +139,23 @@ jobs:
         run: |
           cargo run -p sentinel-fixtures -- fixtures/demo-traffic.pcap
           git diff --exit-code -- fixtures/demo-traffic.pcap
+
+  site:
+    name: Download page is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # site/index.html is the file a web host serves. If it is committed but stale, whoever
+      # deploys it publishes a download page that disagrees with the manifest it was generated
+      # from -- which is the same failure the golden-fixture job above exists to prevent, for
+      # the same reason. --check exits non-zero rather than rewriting the file.
+      #
+      # The generator cross-checks the manifest against Cargo.toml and tauri.conf.json, so this
+      # job also fails if the version was bumped in code without updating the manifest.
+      - name: Verify the download page matches its manifest
+        run: python tools/generate-download-site.py --check

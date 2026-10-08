@@ -44,6 +44,13 @@ apps/desktop/src-tauri/gen/
 *.pdf
 !docs/Sentinel-Reference.pdf
 
+# The download page is committed for the same reason as the PDF: site/index.html is the file a
+# web host serves, and asking whoever deploys the site to install Python first would be a
+# pointless barrier to publishing. It is generated from site/release-manifest.json by
+# tools/generate-download-site.py, and CI runs that generator in --check mode so the two
+# cannot drift apart.
+# Anything else under site/ is scratch: uploaded installers, images dropped in by hand.
+
 # Golden PCAP fixtures are committed deliberately; everything else is not
 *.pcapng.tmp
 
