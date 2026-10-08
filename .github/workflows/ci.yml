@@ -108,16 +108,22 @@ jobs:
       # Split rather than one step with a conditional PATH expression, because setting PATH to
       # an empty string on Linux would strip the toolchain out from under cargo.
       #
-      # The Windows step *prepends* the stub directory instead of replacing PATH. Replacing it
-      # with the stub plus System32 was the first attempt and it broke in a way worth recording:
-      # cargo lives in %USERPROFILE%\.cargo\bin, so `cargo: The term 'cargo' is not recognized`
-      # -- a stub problem that looked like a toolchain problem. Prepending puts the stub ahead
-      # of everything, including any real Npcap, which is what makes it win deterministically.
+      # The Windows step prepends the stub directory from inside the script. Two earlier
+      # attempts at doing it in the `env:` block both failed, and the second is the instructive
+      # one: `${{ env.PATH }}` expands to *nothing*, because the runner's ambient PATH is not
+      # part of the Actions `env` context -- only variables set in workflow/job/step `env`
+      # blocks are. That produced `PATH: D:\a\_temp\iklwa-stub-wpcap;` and then
+      # "The term 'cargo' is not recognized". Reading $env:PATH inside the script is the only
+      # form that sees the real value.
+      #
+      # Prepending rather than replacing is also what makes the stub win deterministically,
+      # ahead of anything else that could offer a wpcap.dll.
       - name: Test (Windows, stubbed capture driver)
         if: runner.os == 'Windows'
-        run: cargo test --workspace --locked
-        env:
-          PATH: ${{ env.IKLWA_STUB_WPCAP }};${{ env.PATH }}
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:IKLWA_STUB_WPCAP;$env:PATH"
+          cargo test --workspace --locked
 
       - name: Test
         if: runner.os != 'Windows'
