@@ -80,14 +80,10 @@ jobs:
       # enumeration the way libpcap does when Npcap is absent -- an error, which Sentinel
       # surfaces as a typed user-facing failure -- and traps on every other call, so a test that
       # tried to capture for real would fail loudly rather than report a fabricated result.
-      - name: Build the stub wpcap.dll (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $stub = Join-Path $env:RUNNER_TEMP 'iklwa-stub-wpcap'
-          pwsh -File tools/build-stub-wpcap-dll.ps1 -OutputDirectory $stub
-          "IKLWA_STUB_WPCAP=$stub" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
+      #
+      # Its export table is read from the import tables of the binaries below, so the order
+      # matters: --no-run compiles the test harnesses without executing them, which is exactly
+      # what is needed here and is reused by the test step afterwards.
       - name: Build
         # `--locked` plus the explicit feature list: `custom-protocol` is what makes the
         # desktop binary load its embedded assets instead of the dev-server URL, and a build
@@ -95,6 +91,15 @@ jobs:
         run: |
           cargo build --workspace --locked
           cargo build --release -p sentinel-desktop --features custom-protocol --locked
+          cargo test --workspace --locked --no-run
+
+      - name: Build the stub wpcap.dll (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stub = Join-Path $env:RUNNER_TEMP 'iklwa-stub-wpcap'
+          pwsh -File tools/build-stub-wpcap-dll.ps1 -OutputDirectory $stub
+          "IKLWA_STUB_WPCAP=$stub" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       # The suite does not need a capture driver or privileges: every packet-path test runs
       # through generated frames and the offline source. That is deliberate, and it means CI

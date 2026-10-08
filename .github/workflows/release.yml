@@ -54,6 +54,12 @@ jobs:
       # PATH is overridden for this one step only. The jobs below that produce artifacts never add
       # it: a bundled binary must resolve the real driver or fail at startup, never silently
       # trap on the first capture.
+      #
+      # The compile comes first because the stub's export table is read from the import tables
+      # of the test binaries it produces.
+      - name: Compile the test binaries
+        run: cargo test --workspace --locked --no-run
+
       - name: Build the stub wpcap.dll (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
