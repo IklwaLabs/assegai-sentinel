@@ -107,6 +107,8 @@ fn to_result(response: sentinel_core::request::Response) -> ApiResult<CommandRes
 mod tests {
     use sentinel_common::config::AppConfig;
 
+    use crate::error::ApiErrorKind;
+
     use super::*;
 
     /// Serialises the tests that depend on `IKLWA_HOME`.
@@ -202,17 +204,26 @@ mod tests {
         assert!(state.is_idle(), "a fresh engine is idle, got {state:?}");
 
         // Starting a non-existent interface fails with a typed error naming it.
+        //
+        // On a machine with no capture driver, the missing driver is reported instead, and that
+        // is the correct precedence: there is no point telling someone to pick an interface
+        // when the thing that would capture from it is absent. So both are accepted here. The
+        // test used to require the interface hint unconditionally, which made it fail on any
+        // machine without Npcap -- a real configuration, and one CI runs in.
         let err = frontend
             .send(Command::Start {
                 interface_id: "sentinel-missing".to_string(),
             })
             .await
             .expect_err("a missing interface cannot be started");
+        let driver_absent = err.kind == ApiErrorKind::Driver;
+        let names_the_picker = err
+            .hint
+            .iter()
+            .any(|hint| hint.contains("interface picker"));
         assert!(
-            err.hint
-                .iter()
-                .any(|hint| hint.contains("interface picker")),
-            "{err:?}"
+            driver_absent || names_the_picker,
+            "expected either the missing-interface hint or a missing-driver error, got {err:?}"
         );
 
         // Stopping while idle is an invalid state, reported as such.

@@ -42,7 +42,34 @@ jobs:
 
       - uses: ./.github/actions/setup-build-deps
 
+      # A Windows test binary links wpcap.dll statically, so Windows resolves it at process
+      # start and the binary will not start without it -- even though no test calls pcap.
+      #
+      # Real Npcap cannot be installed unattended on a runner: Npcap's own tracker says the
+      # installer has no silent mode (nmap/npcap#227), the silent installer is an OEM
+      # feature, and the free one given /S leaves a resident process that hung this job for 35
+      # minutes. So the stub stands in for a machine with no capture driver, which Sentinel
+      # supports and reports as a typed error.
+      #
+      # PATH is overridden for this one step only. The jobs below that produce artifacts never add
+      # it: a bundled binary must resolve the real driver or fail at startup, never silently
+      # trap on the first capture.
+      - name: Build the stub wpcap.dll (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stub = Join-Path $env:RUNNER_TEMP 'iklwa-stub-wpcap'
+          pwsh -File tools/build-stub-wpcap-dll.ps1 -OutputDirectory $stub
+          "IKLWA_STUB_WPCAP=$stub" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Test (Windows, stubbed capture driver)
+        if: runner.os == 'Windows'
+        run: cargo test --workspace --locked
+        env:
+          PATH: ${{ env.IKLWA_STUB_WPCAP }}\;C:\Windows\system32\;C:\Windows\
+
       - name: Test
+        if: runner.os != 'Windows'
         run: cargo test --workspace --locked
 
       - name: Clippy
@@ -176,6 +203,15 @@ jobs:
         run: |
           python tools/collect-artifacts.py --platform windows --staging artifacts
           Get-ChildItem artifacts | Format-Table Name, Length
+
+      # The verify job builds a stub wpcap.dll so its test binaries can start on a machine
+      # with no capture driver. This job must never resolve it. If PATH were set at job level
+      # instead of step level, the binary in the installer would silently link against a DLL
+      # whose every export aborts -- shipping an app that installs cleanly and dies on the first
+      # capture. That is invisible here and obvious to a user, so it is checked.
+      - name: Refuse to ship the CI stub capture driver
+        shell: pwsh
+        run: python tools/check-for-stub-dll.py artifacts target/release/sentinel.exe
 
       - uses: actions/upload-artifact@v4
         with:

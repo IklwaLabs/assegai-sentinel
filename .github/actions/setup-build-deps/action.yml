@@ -32,7 +32,7 @@ runs:
           file
 
     # --------------------------------------------------------------- Windows
-    - name: Install Npcap runtime and SDK (Windows)
+    - name: Install Npcap SDK (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
@@ -41,54 +41,22 @@ runs:
         $work = Join-Path $env:RUNNER_TEMP 'npcap'
         New-Item -ItemType Directory -Force -Path $work | Out-Null
 
-        # The runtime and the SDK are two different downloads that solve two different
-        # problems, and a job needs both:
+        # Only the SDK, and deliberately no Npcap *runtime*.
         #
-        #   runtime -> wpcap.dll in System32. The SDK ships import libraries and headers
-        #              but no DLL, so a job with only the SDK links cleanly and then dies
-        #              at process start with STATUS_DLL_NOT_FOUND. That failure is silent
-        #              in cargo's output: it prints "test failed" with no assertion, no
-        #              test name and no test count.
-        #   SDK     -> wpcap.lib, so the linker has something to resolve against.
+        # The SDK provides wpcap.lib, which is what the linker needs. Nothing here installs the
+        # driver, and that is the point rather than an omission: Npcap cannot be installed
+        # unattended, so every attempt to do it here failed. First `/S` on a made-up version
+        # number, then the real 1.89 URL, then a detached launch with a polling deadline, which
+        # reached the four-minute timeout because `/S` is not a working silent flag for the free
+        # edition. Npcap's own tracker settles it:
         #
-        # The installer is launched detached and *not* waited on. This is not a stylistic
-        # choice: `Start-Process -Wait` hung here for 35 minutes and had to be cancelled.
+        #   "Since the npcap installer has no silent mode, it can not be used to set up npcap
+        #    in the CI setup of the rust pcap bindings."  -- nmap/npcap#227
         #
-        # `/S` is not a reliable silent flag for the free edition. Npcap's own site documents
-        # the silent installer as an OEM-only feature, and the NSIS build shipped for download
-        # keeps a parent process alive after finishing its work. Waiting on it waits forever.
-        #
-        # We do not need the driver -- no test enumerates or opens a live interface, which is
-        # what keeps this suite deterministic. We need one file, wpcap.dll, and it lands within
-        # a second or two of launch. So the step polls for that file with a deadline and kills
-        # whatever is left over, rather than waiting on a process that will not exit.
-        $installer = Join-Path $work 'npcap-installer.exe'
-        Invoke-WebRequest -Uri 'https://npcap.com/dist/npcap-1.89.exe' -OutFile $installer
-
-        $dll = Join-Path $env:SystemRoot 'System32\wpcap.dll'
-        if (-not (Test-Path $dll)) {
-          Start-Process -FilePath $installer -ArgumentList '/S' | Out-Null
-
-          $deadline = (Get-Date).AddMinutes(4)
-          while (-not (Test-Path $dll)) {
-            if ((Get-Date) -gt $deadline) {
-              throw "wpcap.dll did not appear in System32 within 4 minutes of starting the Npcap installer. Test binaries link against it transitively through sentinel-capture and will fail to start with no useful message."
-            }
-            Start-Sleep -Seconds 5
-          }
-          "wpcap.dll present in System32"
-        } else {
-          "wpcap.dll already in System32; skipping the installer"
-        }
-
-        # The installer does not exit on its own, so the runner would report it as an orphan
-        # process and warn about it. It has already done its job by now.
-        Get-Process -Name 'npcap-installer' -ErrorAction SilentlyContinue |
-          ForEach-Object {
-            "stopping leftover npcap-installer (pid $($_.Id))"
-            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-          }
-
+        # The silent installer is an OEM-only feature. A job that needs to *run* test binaries
+        # gets a stub DLL from tools/build-stub-wpcap-dll.ps1, which stands in for a machine
+        # with no capture driver. A job that only *links* -- which is what every release job
+        # does -- needs nothing further.
         $sdk = Join-Path $work 'sdk'
         $archive = Join-Path $work 'sdk.zip'
         Invoke-WebRequest -Uri 'https://npcap.com/dist/npcap-sdk-1.16.zip' -OutFile $archive
@@ -102,6 +70,12 @@ runs:
           throw "wpcap.lib not found under $lib. The SDK layout changed."
         }
         "IKLWA_PCAP_LIB=$lib" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+        # The stub generator reads wpcap.def from beside that import library, so the stub's
+        # exports match whatever the binary was linked against.
+        if (-not (Test-Path (Join-Path $lib '..\..\wpcap.def'))) {
+          throw "wpcap.def not found in the SDK. tools/build-stub-wpcap-dll.ps1 generates its export table from it, so a layout change breaks the stub."
+        }
 
     # ------------------------------------------------------------- Frontend
     # Built before cargo runs, not after. `tauri::generate_context!` resolves

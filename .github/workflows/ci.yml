@@ -67,6 +67,27 @@ jobs:
 
       - uses: ./.github/actions/setup-build-deps
 
+      # A Windows test binary links wpcap.dll statically, so Windows resolves it during process
+      # startup and the binary cannot start without it -- even though not one of the 292 tests
+      # calls a pcap function. They all run through generated frames and the offline reader.
+      #
+      # Real Npcap cannot be installed unattended on a runner; Npcap's own tracker says the
+      # installer has no silent mode (nmap/npcap#227) and the silent installer is an OEM
+      # feature. Given /S, the free installer completes its work and leaves a resident
+      # process, which hung this job for 35 minutes before this step existed.
+      #
+      # The stub stands in for a machine with no capture driver. It answers interface
+      # enumeration the way libpcap does when Npcap is absent -- an error, which Sentinel
+      # surfaces as a typed user-facing failure -- and traps on every other call, so a test that
+      # tried to capture for real would fail loudly rather than report a fabricated result.
+      - name: Build the stub wpcap.dll (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stub = Join-Path $env:RUNNER_TEMP 'iklwa-stub-wpcap'
+          pwsh -File tools/build-stub-wpcap-dll.ps1 -OutputDirectory $stub
+          "IKLWA_STUB_WPCAP=$stub" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Build
         # `--locked` plus the explicit feature list: `custom-protocol` is what makes the
         # desktop binary load its embedded assets instead of the dev-server URL, and a build
@@ -77,9 +98,21 @@ jobs:
 
       # The suite does not need a capture driver or privileges: every packet-path test runs
       # through generated frames and the offline source. That is deliberate, and it means CI
-      # is deterministic. It does need the Npcap runtime on Windows, though, because the test
-      # binary links wpcap.dll transitively -- see the setup action.
+      # is deterministic.
+      #
+      # Split rather than one step with a conditional PATH expression, because setting PATH to
+      # an empty string on Linux would strip the toolchain out from under cargo. The Windows
+      # PATH keeps System32 and the Windows directory: an MSVC test binary needs them to find
+      # the CRT, and dropping them would fail on an unrelated DLL that looks like the stub's
+      # fault.
+      - name: Test (Windows, stubbed capture driver)
+        if: runner.os == 'Windows'
+        run: cargo test --workspace --locked
+        env:
+          PATH: ${{ env.IKLWA_STUB_WPCAP }}\;C:\Windows\system32\;C:\Windows\
+
       - name: Test
+        if: runner.os != 'Windows'
         run: cargo test --workspace --locked
 
   frontend:
