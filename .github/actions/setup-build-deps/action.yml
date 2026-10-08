@@ -51,18 +51,43 @@ runs:
         #              test name and no test count.
         #   SDK     -> wpcap.lib, so the linker has something to resolve against.
         #
-        # `/S` is Npcap's documented silent-install flag. The driver it installs is not
-        # needed: no test enumerates or opens a live interface, which is what keeps this
-        # suite deterministic. Only the DLL is required, and that lands immediately.
+        # The installer is launched detached and *not* waited on. This is not a stylistic
+        # choice: `Start-Process -Wait` hung here for 35 minutes and had to be cancelled.
+        #
+        # `/S` is not a reliable silent flag for the free edition. Npcap's own site documents
+        # the silent installer as an OEM-only feature, and the NSIS build shipped for download
+        # keeps a parent process alive after finishing its work. Waiting on it waits forever.
+        #
+        # We do not need the driver -- no test enumerates or opens a live interface, which is
+        # what keeps this suite deterministic. We need one file, wpcap.dll, and it lands within
+        # a second or two of launch. So the step polls for that file with a deadline and kills
+        # whatever is left over, rather than waiting on a process that will not exit.
         $installer = Join-Path $work 'npcap-installer.exe'
         Invoke-WebRequest -Uri 'https://npcap.com/dist/npcap-1.89.exe' -OutFile $installer
-        $process = Start-Process -FilePath $installer -ArgumentList '/S' -Wait -PassThru
-        "Npcap installer exit code: $($process.ExitCode)"
 
         $dll = Join-Path $env:SystemRoot 'System32\wpcap.dll'
         if (-not (Test-Path $dll)) {
-          throw "wpcap.dll is not in System32 after installing the Npcap runtime. Test binaries link against it transitively through sentinel-capture and will fail to start with no useful message."
+          Start-Process -FilePath $installer -ArgumentList '/S' | Out-Null
+
+          $deadline = (Get-Date).AddMinutes(4)
+          while (-not (Test-Path $dll)) {
+            if ((Get-Date) -gt $deadline) {
+              throw "wpcap.dll did not appear in System32 within 4 minutes of starting the Npcap installer. Test binaries link against it transitively through sentinel-capture and will fail to start with no useful message."
+            }
+            Start-Sleep -Seconds 5
+          }
+          "wpcap.dll present in System32"
+        } else {
+          "wpcap.dll already in System32; skipping the installer"
         }
+
+        # The installer does not exit on its own, so the runner would report it as an orphan
+        # process and warn about it. It has already done its job by now.
+        Get-Process -Name 'npcap-installer' -ErrorAction SilentlyContinue |
+          ForEach-Object {
+            "stopping leftover npcap-installer (pid $($_.Id))"
+            Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+          }
 
         $sdk = Join-Path $work 'sdk'
         $archive = Join-Path $work 'sdk.zip'
