@@ -51,9 +51,11 @@ jobs:
       # minutes. So the stub stands in for a machine with no capture driver, which Sentinel
       # supports and reports as a typed error.
       #
-      # PATH is overridden for this one step only. The jobs below that produce artifacts never add
-      # it: a bundled binary must resolve the real driver or fail at startup, never silently
-      # trap on the first capture.
+      # PATH is *prepended* for this one step only. Replacing PATH outright was the first attempt
+      # and it removed %USERPROFILE%\.cargo\bin, so cargo itself stopped being runnable --
+      # reported as "The term 'cargo' is not recognized", which points nowhere near the cause.
+      # The jobs below that produce artifacts never add the stub at all: a bundled binary must
+      # resolve the real driver or fail at startup, never silently trap on the first capture.
       #
       # The compile comes first because the stub's export table is read from the import tables
       # of the test binaries it produces.
@@ -72,7 +74,7 @@ jobs:
         if: runner.os == 'Windows'
         run: cargo test --workspace --locked
         env:
-          PATH: ${{ env.IKLWA_STUB_WPCAP }}\;C:\Windows\system32\;C:\Windows\
+          PATH: ${{ env.IKLWA_STUB_WPCAP }};${{ env.PATH }}
 
       - name: Test
         if: runner.os != 'Windows'

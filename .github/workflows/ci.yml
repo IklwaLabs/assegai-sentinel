@@ -106,15 +106,18 @@ jobs:
       # is deterministic.
       #
       # Split rather than one step with a conditional PATH expression, because setting PATH to
-      # an empty string on Linux would strip the toolchain out from under cargo. The Windows
-      # PATH keeps System32 and the Windows directory: an MSVC test binary needs them to find
-      # the CRT, and dropping them would fail on an unrelated DLL that looks like the stub's
-      # fault.
+      # an empty string on Linux would strip the toolchain out from under cargo.
+      #
+      # The Windows step *prepends* the stub directory instead of replacing PATH. Replacing it
+      # with the stub plus System32 was the first attempt and it broke in a way worth recording:
+      # cargo lives in %USERPROFILE%\.cargo\bin, so `cargo: The term 'cargo' is not recognized`
+      # -- a stub problem that looked like a toolchain problem. Prepending puts the stub ahead
+      # of everything, including any real Npcap, which is what makes it win deterministically.
       - name: Test (Windows, stubbed capture driver)
         if: runner.os == 'Windows'
         run: cargo test --workspace --locked
         env:
-          PATH: ${{ env.IKLWA_STUB_WPCAP }}\;C:\Windows\system32\;C:\Windows\
+          PATH: ${{ env.IKLWA_STUB_WPCAP }};${{ env.PATH }}
 
       - name: Test
         if: runner.os != 'Windows'
