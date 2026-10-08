@@ -24,15 +24,18 @@ If you would rather have per-person attribution on GitHub itself, the mechanism 
 co-author trailer on a commit:
 
 ```
-Co-Authored-By: Eric Alfonce <your-github-verified-email>
+Co-Authored-By: Eric Alfonce <emericjaguar@outlook.com>
 ```
 
-GitHub links a co-author only when the address in the trailer is a verified email on a
-GitHub account, so the address has to come from
-**Settings → Emails** on the account, not from guesswork. Rewriting existing history to change
-authors was considered and rejected: it would rewrite every commit SHA, invalidate the
-`v0.1.0` tag on both remotes, and make the published release history unverifiable — a large
-cost for a cosmetic gain.
+This is now in use. GitHub links a co-author only when the address in the trailer is a
+verified email on a GitHub account; if it is not verified, GitHub still shows the name but
+does not link it to the profile. Check that the address appears under **Settings → Emails**
+on the account if the attribution is not showing as a linked contributor.
+
+Rewriting existing history to change authors was considered and rejected: it would rewrite
+every commit SHA, invalidate the `v0.1.0` tag on both remotes, and make the published
+release history unverifiable — a large cost for a cosmetic gain. Attribution therefore
+applies from the commit that introduced this file onwards.
 
 ## Reporting a problem
 
