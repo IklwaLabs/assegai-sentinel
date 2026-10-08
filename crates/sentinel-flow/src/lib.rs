@@ -8,15 +8,21 @@
 //!
 //! Neither this crate nor its callers persist anything. Storage receives finished flows;
 //! detection receives flow events. That keeps analysis testable without a database.
+//!
+//! [`privacy`] is the one exception to "owns two things": redaction is a property of how an
+//! endpoint is *written out*, which is the same knowledge as keying, and putting it in the
+//! crate that defines [`Endpoint`] keeps it testable without a database or a config file.
 
 pub mod aggregate;
 pub mod flow;
 pub mod key;
+pub mod privacy;
 pub mod table;
 
 pub use aggregate::{ProtocolTotals, TrafficAggregator, TrafficSample, TrafficSummary};
 pub use flow::{Flow, FlowState, FlowUpdate};
 pub use key::FlowKey;
+pub use privacy::{Redaction, Redactor, is_private_address};
 pub use table::FlowTable;
 
 /// A flow engine failure.

@@ -134,10 +134,13 @@ impl Default for RetentionConfig {
 #[serde(default, rename_all = "camelCase", deny_unknown_fields)]
 #[derive(Default)]
 pub struct PrivacyConfig {
-    /// Retain a small payload sample per flow for evidence. Off by default: the product
-    /// is designed to work without payload retention.
-    pub capture_payload_samples: bool,
-    /// Redact local and LAN addresses in exported reports.
+    /// Redact this machine's and private-LAN addresses in exported reports.
+    ///
+    /// Implemented in `sentinel_flow::privacy` and honoured by `sentinel export`. Private
+    /// peers are replaced with a stable per-export pseudonym (`lan-1`, `lan-2`) rather than a
+    /// blanket token, so per-host totals and destination fan-out remain analysable while the
+    /// addresses themselves are gone. Public destination addresses are kept, because they are
+    /// usually the most useful field in an export and redacting them would protect nothing.
     pub redact_local_addresses_in_exports: bool,
 }
 

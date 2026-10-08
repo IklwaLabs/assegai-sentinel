@@ -60,6 +60,11 @@ process attribution, device inventory, DNS correlation, and desktop capture-file
 Dependencies point inward: `platform` and `common` know about nothing; `api` knows about the
 engine; the apps know about `api`. Nothing depends on an app.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for what a change should look like, and
+[CONTRIBUTORS.md](CONTRIBUTORS.md) for who builds this.
+
 ## Documentation
 
 **[`docs/Sentinel-Reference.pdf`](docs/Sentinel-Reference.pdf)** is the whole product in one

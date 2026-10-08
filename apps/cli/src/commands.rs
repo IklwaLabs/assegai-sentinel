@@ -11,6 +11,7 @@ use anyhow::Result;
 use sentinel_api::types::{Command, CommandResult};
 use sentinel_api::{ApiError, Frontend};
 use sentinel_common::clock;
+use sentinel_flow::privacy::Redactor;
 
 use crate::output::{self, Table};
 
@@ -425,6 +426,27 @@ fn print_analysis(context: &Context, snapshot: &sentinel_api::types::EngineSnaps
 }
 
 /// `sentinel export`
+/// Every address currently assigned to this machine.
+///
+/// Enumeration does not require capture privileges on any supported platform -- only reading
+/// frames does -- so `sentinel export` works unprivileged and redaction is not conditional on
+/// being elevated.
+///
+/// A failure here is not fatal. Losing the machine's own addresses would still leave the
+/// private-range peers redacted, which is the bulk of the protection; failing the whole export
+/// because a list of local addresses could not be read would be a worse outcome than a
+/// slightly less precise `this-machine` label.
+fn local_addresses() -> Vec<std::net::IpAddr> {
+    match sentinel_platform::interfaces() {
+        Ok(interfaces) => interfaces
+            .into_iter()
+            .flat_map(|interface| interface.addresses)
+            .map(|address| address.addr)
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 pub async fn export(
     context: &Context,
     path: Option<PathBuf>,
@@ -437,6 +459,20 @@ pub async fn export(
         sentinel_storage::DatabaseOptions::default(),
     )?;
     let flows = database.recent_flows(limit)?;
+
+    // The redaction switch has existed since v0.1 and was never read by this function, which
+    // opened the database and serialised flows without loading settings at all. Turning it on
+    // therefore produced an unredacted file while claiming to be redacted -- silent, and
+    // failing open on exactly the path where a user hands data to somebody else.
+    let config = sentinel_platform::settings::SettingsStore::new(&paths.config_file)
+        .load()
+        .config;
+    let redact = config.privacy.redact_local_addresses_in_exports;
+    let mut redactor = if redact {
+        Redactor::new(local_addresses())
+    } else {
+        Redactor::default()
+    };
 
     let json = as_json || context.json;
     let destination = path.unwrap_or_else(|| {
@@ -453,14 +489,28 @@ pub async fn export(
         std::fs::create_dir_all(parent)?;
     }
 
+    // Redact both endpoints per record before either format is written. The redactor is
+    // stateful, so a peer's pseudonym is stable for the whole file: that is what keeps
+    // per-host byte totals and destination fan-out analysable after redaction.
+    let rendered: Vec<(String, String)> = flows
+        .iter()
+        .map(|record| {
+            (
+                redactor.redact_endpoint(&record.flow.key.endpoint_a),
+                redactor.redact_endpoint(&record.flow.key.endpoint_b),
+            )
+        })
+        .collect();
+
     if json {
         let rows: Vec<serde_json::Value> = flows
             .iter()
-            .map(|record| {
+            .zip(&rendered)
+            .map(|(record, (local, remote))| {
                 serde_json::json!({
                     "id": record.id,
-                    "local": record.flow.key.endpoint_a.display(),
-                    "remote": record.flow.key.endpoint_b.display(),
+                    "local": local,
+                    "remote": remote,
                     "protocol": record.flow.key.protocol.label(),
                     "service": record.flow.service,
                     "domain": record.flow.domain,
@@ -479,12 +529,12 @@ pub async fn export(
         let mut csv = String::from(
             "id,local,remote,protocol,service,domain,process,upload_bytes,download_bytes,packets,first_seen,last_seen,risk_score\n",
         );
-        for record in &flows {
+        for (record, (local, remote)) in flows.iter().zip(&rendered) {
             csv.push_str(&format!(
                 "{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
                 csv_field(&record.id),
-                csv_field(&record.flow.key.endpoint_a.display()),
-                csv_field(&record.flow.key.endpoint_b.display()),
+                csv_field(local),
+                csv_field(remote),
                 record.flow.key.protocol.label(),
                 csv_field(record.flow.service.as_deref().unwrap_or("")),
                 csv_field(record.flow.domain.as_deref().unwrap_or("")),
@@ -509,6 +559,14 @@ pub async fn export(
             ));
         }
         std::fs::write(&destination, csv)?;
+    }
+
+    if redact {
+        output::note(
+            context.quiet,
+            "Redacted local and private addresses. Private peers are replaced by stable \
+             pseudonyms, so per-host totals stay comparable; public destinations are kept.",
+        );
     }
 
     output::note(
