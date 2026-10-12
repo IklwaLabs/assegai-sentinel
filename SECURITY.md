@@ -29,8 +29,65 @@ column for them. A setting exists to retain small payload samples as evidence fo
 rules; it is off by default, and enabling it changes what is written to your own disk, not what
 leaves it.
 
-**Sentinel does not modify your network.** It reads. There is no packet injection, no ARP
-spoofing, no DNS manipulation and no traffic shaping anywhere in the codebase.
+Note: that payload-retention setting was removed in v0.2. Packets are deliberately never
+stored, so there was nothing for it to control, and a setting that promises behaviour no code
+performs is worse than no setting. See [docs/MATURITY-ANALYSIS.md](docs/MATURITY-ANALYSIS.md).
+
+## Sentinel and your network: read by default, respond only with your consent
+
+**Sentinel does not modify your network unless you explicitly turn active response on.** Out of
+the box it only reads. There is no packet injection, no ARP spoofing, no DNS manipulation and
+no traffic shaping anywhere in the codebase.
+
+That guarantee used to be unconditional, and it was worth something. It is now conditional,
+and the condition is designed to be hard to satisfy by accident:
+
+1. **Off by default.** Every existing installation upgrades into "read only". Turning response
+   on is never a side effect of an upgrade, a config migration or a new default.
+2. **Requires a named authorisation.** To enable it you must enter who is authorising Sentinel
+   to act and which network it is acting on. Sentinel cannot verify that you own a network,
+   and does not pretend to — it records your statement. An incomplete authorisation is refused
+   when it is created, so one can never be saved and discovered as a surprise mid-incident.
+3. **Every action is audited.** Each attempt is written to a durable record — what was done,
+   to which address, on whose authority — *before* it is attempted, with the outcome recorded
+   afterwards. A failed attempt is recorded as a failure and never as a change.
+4. **Only sustained conflicts are acted on.** A single disagreement between two MAC addresses
+   for one IP is almost always a DHCP re-address, and Sentinel will not react to one. It acts
+   when two machines are both answering for the same address, or when a new claimant takes an
+   address and holds it.
+
+**What response can do.** Today, one thing: send a *gratuitous ARP reply* that re-asserts an
+address to its true owner, repairing hosts on your segment whose caches were poisoned. It does
+not modify DNS, does not block or shape traffic, and does not transmit anything that is not a
+direct correction of a specific, detected fault.
+
+**What response deliberately does not do.** It does not deauthenticate anyone, does not touch
+802.11 management frames, and does not attempt to evict or interfere with access points.
+
+### Why the WiFi limit is a limit, not an oversight
+
+Sentinel **cannot see 802.11 management frames** — no beacons, no probe responses, no
+deassociation or deauthentication frames. The WiFi driver strips the 802.11 header before
+frames reach a packet socket, and management frames are not delivered to it at all. Detecting
+an evil twin, a rogue access point or a deauthentication flood would therefore need a
+fundamentally different capture mechanism — monitor mode on Linux, or each operating system's
+native WiFi scanning API, with privileges Sentinel does not request.
+
+Sentinel therefore cannot tell you that the WiFi you joined is not the WiFi it claims to be.
+It can tell you that, once connected, something on the network is answering for an address
+that is not its own.
+
+This is also why response does not attempt to deauthenticate an attacker. Beyond the
+technical impossibility, doing so would require injecting management frames Sentinel cannot
+even observe.
+
+### A legal note, stated plainly
+
+Injecting traffic onto a network you do not own or have written permission to test is a
+criminal offence in many jurisdictions, including under Tanzania's Cybercrimes Act, **even
+when the traffic is corrective**. Sentinel asks for a named authorisation for that reason and
+not as a formality. If you are not certain you are authorised, leave response off — detection
+is unaffected and costs you nothing.
 
 ## What Sentinel needs, and why
 

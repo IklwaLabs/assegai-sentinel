@@ -1,0 +1,24 @@
+[package]
+name = "sentinel-response"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Active network response for Iklwa Sentinel: consent gating, deception detection and remediation actions with an audit trail."
+
+[dependencies]
+sentinel-common.workspace = true
+sentinel-parser.workspace = true
+bytes.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints.rust]
+missing_docs = "warn"

@@ -45,6 +45,7 @@ sentinel-capture   sentinel-flow      sentinel-storage
 | `sentinel-platform` | Interface enumeration, per-OS enrichment, data/log/config paths, capability probing | Parse packets, own business state |
 | `sentinel-parser` | Pure, allocation-conscious packet decoding to `NormalizedPacket` | Capture, persist, or hold state between packets |
 | `sentinel-capture` | `CaptureProvider` trait + Npcap/libpcap adapters, offline PCAP source, bounded ingress queue | Analyze packets |
+| `sentinel-response` | Consent gate, ARP deception detection, corrective-frame construction, audit trail | Change the network (only with consent) |
 | `sentinel-flow` | Bidirectional flow keying, flow table with idle eviction, traffic aggregation | Persist or detect |
 | `sentinel-storage` | SQLite schema, migrations, batched writer thread, retention | Decide what a flow is |
 | `sentinel-core` | Wires capture -> parse -> flow -> aggregate -> storage, owns engine session state | Contain parsing or SQL details |

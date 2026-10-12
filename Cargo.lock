@@ -3027,6 +3027,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sentinel-response"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "sentinel-common",
+ "sentinel-parser",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "sentinel-storage"
 version = "0.1.0"
 dependencies = [

@@ -50,6 +50,7 @@ process attribution, device inventory, DNS correlation, and desktop capture-file
 | `crates/sentinel-flow` | Flow keys, the flow table, traffic aggregation. |
 | `crates/sentinel-storage` | SQLite schema, migrations, batched writer, retention. |
 | `crates/sentinel-capture` | Capture backends and the bounded ingress queue. |
+| `crates/sentinel-response` | Consent gate, ARP deception detection and the audit trail. |
 | `crates/sentinel-core` | The engine task and the pipeline that stitches the above together. |
 | `crates/sentinel-api` | The command and event contract every frontend uses. |
 | `apps/cli` | The `sentinel` command line interface. |
