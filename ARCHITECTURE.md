@@ -47,12 +47,17 @@ sentinel-capture   sentinel-flow      sentinel-storage
 | `sentinel-capture` | `CaptureProvider` trait + Npcap/libpcap adapters, offline PCAP source, bounded ingress queue | Analyze packets |
 | `sentinel-response` | Consent gate, ARP deception detection, corrective-frame construction, audit trail | Change the network (only with consent) |
 | `sentinel-flow` | Bidirectional flow keying, flow table with idle eviction, traffic aggregation | Persist or detect |
+| `sentinel-detect` | Deterministic detectors, the finding model, deduplication and ordering | I/O, network access, payload inspection |
 | `sentinel-storage` | SQLite schema, migrations, batched writer thread, retention | Decide what a flow is |
-| `sentinel-core` | Wires capture -> parse -> flow -> aggregate -> storage, owns engine session state | Contain parsing or SQL details |
+| `sentinel-core` | Wires capture -> parse -> detect -> flow -> aggregate -> storage, owns engine session state | Contain parsing, detection rules or SQL details |
 | `sentinel-api` | Serde DTOs, `SentinelCommand`, `SentinelEvent`, user-facing error mapping | Perform security analysis |
 
+`sentinel-detect` depends only on `sentinel-common` and `sentinel-response`. It never opens a
+socket, reads a file or reaches into storage, which is what keeps every rule replayable from a
+capture file.
+
 Additional crates (`sentinel-protocols`, `sentinel-device`, `sentinel-process`,
-`sentinel-detection`, `sentinel-threat-intel`, `sentinel-risk`, `sentinel-reporting`)
+`sentinel-threat-intel`, `sentinel-risk`, `sentinel-reporting`)
 are introduced by the milestone that needs them, per `ROADMAP.md`. They are
 deliberately absent now: an empty crate is a placeholder, and placeholders are
 treated as a defect.
@@ -63,11 +68,15 @@ treated as a defect.
 CaptureSource (pcap live | pcap file)
   -> bounded ingress queue  (drop counter, never blocking)
   -> PacketDecoder          (frame validation, L2..L4)
+  -> DetectionEngine        (stateless rules + bounded per-host state, findings)
   -> FlowEngine             (normalize key, update counters, TTL evict)
   -> TrafficAggregator      (1s ring buckets, protocol totals)
   -> StorageSink            (batched writer thread)
   -> EventBroadcaster       (throttled UI updates)
 ```
+
+Detection deliberately runs *before* flow tracking: ARP has no flow identity, and a detector
+wired into the flow path would never see it.
 
 Rules that the pipeline must always hold:
 
@@ -81,8 +90,8 @@ Rules that the pipeline must always hold:
 4. **Decode is a pure function.** `PacketDecoder::decode` takes bytes and returns a
    normalized packet. It holds no state, so offline PCAP analysis and live capture share
    the exact same code path.
-5. **No payload retention.** Payload lengths and metadata are kept; payload bytes are
-   not, unless a bounded evidence sample is explicitly enabled.
+5. **No payload retention.** Payload lengths and metadata are kept; payload bytes are not.
+   Detection works only from headers, timings and counts, so no rule needs to see contents.
 
 ## 4. Concurrency model
 
@@ -105,6 +114,7 @@ packets; it receives aggregate snapshots and aggregate diffs.
 SQLite in WAL mode, one writer thread, transactions per batch.
 
 Tables in migration `0001`: `settings`, `interfaces`, `flows`, `traffic_samples`.
+Migration `0002` adds `protocol_totals`; migration `0003` adds `findings`.
 
 Design decisions:
 
@@ -114,6 +124,9 @@ Design decisions:
   cleanup job runs at session start and then hourly.
 - Aggregated samples are coarse on purpose. Storing every packet or every flow update
   is explicitly rejected; the flow table is a working set that is compacted on flush.
+- Findings are event records, not chart data, so their retention follows the flow period.
+  Severity is kept in the worse direction on conflict: a later quieter observation cannot
+  bury an earlier serious one.
 - No raw SQL string construction anywhere. All statements are static and bound through
   `rusqlite` parameters.
 
@@ -188,6 +201,8 @@ Rules enforced by review and lint:
 - `strict: true`, no `any` without a documented reason.
 - Feature-oriented modules under `src/features/*`; no file above ~400 lines.
 - Tables are virtualized; charts aggregate; no per-packet rendering.
+- Findings arrive pre-sorted and pre-explained. The frontend renders severity, confidence and
+  evidence as separate facts and never computes a threat score of its own.
 - Styling is a small token set (see `apps/desktop/frontend/src/app/tokens.css`) with one
   restrained brand accent. Severity is never encoded by color alone.
 
@@ -203,6 +218,8 @@ Rules enforced by review and lint:
 | D6 | Config is plain typed data with `serde` defaults; persistence lives in the platform layer | Keeps `sentinel-common` free of OS dependencies and makes config testable | Never |
 | D7 | No telemetry, no crash upload, no account | Product requirement and the trust differentiator | Cloud sync ships as opt-in |
 | D8 | Frontend owns no security logic | Keeps analysis testable in Rust and portable to CLI/sensor | Never |
+| D9 | Detection runs before flow tracking, over headers only | ARP has no flow key, and payload inspection would break the privacy promise | A protocol decoder supplies DNS/HTTP metadata without payload retention |
+| D10 | Findings deduplicate by identity and escalate, never de-escalate | One scan is one finding; a quieter later observation must not bury a serious earlier one | Never |
 
 ## 11. Anti-goals
 

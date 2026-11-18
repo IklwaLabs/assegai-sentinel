@@ -254,8 +254,14 @@ correlate them against.
 6. Storage rollups (minute/hour), shipped *with* retention defaults
 
 **v0.3 — Detection, as already written**
+
+Status note: step 8 has landed ahead of steps 7 and 1-6. `sentinel-detect` now ships the
+finding model, recon, cleartext, beaconing and upload detectors, and findings are stored and
+surfaced. What remains below is the rest of the sequence, not a contradiction of it.
+
 7. TCP state machine, then recon detectors (they depend on it)
-8. `sentinel-detection` + explainable evidence, one detector well before many poorly
+8. ~~`sentinel-detection` + explainable evidence, one detector well before many poorly~~ —
+   delivered as `sentinel-detect`; remaining recon rules still need the state machine
 9. Alerts + notification channels (desktop, Event Log, file sink)
 10. Offline threat intel only — see §9
 

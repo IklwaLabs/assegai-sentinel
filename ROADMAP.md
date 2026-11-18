@@ -24,7 +24,7 @@ desktop shell that starts and stops monitoring honestly.
 - [x] `sentinel-storage`: SQLite schema + migrations, batched writer, retention job
 - [x] `sentinel-core`: engine session, request/response API, throttled event broadcast
 - [x] `sentinel-api`: DTOs, commands, events, user-facing error mapping
-- [x] `apps/cli`: `interfaces`, `capture`, `status`, `analyze`, `export`, `doctor`
+- [x] `apps/cli`: `interfaces`, `capture`, `status`, `analyze`, `findings`, `export`, `doctor`
 - [x] `apps/desktop`: Tauri shell + React/TS frontend (first-run, overview, connections,
       traffic chart, settings, diagnostics)
 - [x] Golden PCAP fixtures + integration tests (`pcap -> flows -> alerts-ready state`)
@@ -50,6 +50,9 @@ Known limitations are recorded in `README.md` (section: Limitations of v0.1).
 - [x] `sentinel-response`: consent gate with a named authorisation, ARP cache poisoning
       detection, gratuitous-ARP repair, durable audit trail. Off by default; detection works
       regardless. See `SECURITY.md` for what is and is not transmitted.
+- [x] `sentinel-detect`: deterministic detectors, the finding model, deduplication, bounded
+      state and storage. Delivered early because detection is what makes the monitoring loop
+      useful; see `docs/DETECTION_ENGINE.md`.
 - [ ] `sentinel-protocols`: DNS, DHCP, mDNS, SSDP, NTP, HTTP metadata, TLS client hello + certificate metadata, QUIC initial metadata
 - [ ] `sentinel-process`: per-OS connection-to-process resolvers (Windows IP Helper, Linux `/proc`, macOS libproc) behind `ProcessResolver`
 - [ ] `sentinel-device`: LAN inventory, ARP/DHCP/mDNS/SSDP/ND observation, MAC OUI vendor lookup, confidence levels
@@ -84,14 +87,20 @@ Known limitations are recorded in `README.md` (section: Limitations of v0.1).
 
 ## v0.3 — Security
 
-- [ ] `sentinel-detection`: `Detector` trait, per-category detectors, explainable evidence
-- [ ] Recon detectors: horizontal port scan, vertical port scan, host sweep, broad scan
-- [ ] ARP detectors: conflicting MAC/IP mapping, gateway change, suspected spoofing
+- [x] `sentinel-detect`: per-category detectors, explainable evidence, severity/confidence
+      separation, bounded per-host state
+- [x] Recon detectors: vertical port scan, host sweep
+- [x] ARP detectors: conflicting MAC/IP mapping, reported only when sustained
+- [x] Cleartext protocol detector (port-based; no payload inspection)
+- [x] Behavioural detectors: beaconing, upload spike
+- [x] Findings: model, deduplication, escalation, storage, `sentinel findings`,
+      Detections page
+- [ ] Remaining recon: broad scan and OS-fingerprint-shaped probes
+- [ ] Remaining behavioural: rare destination, unusual port/protocol, destination fan-out
 - [ ] `sentinel-threat-intel`: provider trait, local blocklist, imported IOC files, optional remote providers, cache, privacy filter for private/LAN addresses
-- [ ] Behavioral detectors: beaconing, rare destination, unusual port/protocol, upload spike, destination fan-out
 - [ ] `sentinel-risk`: centralized weight table, transparent scoring, explanations, severity bands
-- [ ] Alerts: model, status workflow (new/acknowledged/investigating/resolved/false positive), explicit reversible suppression
-- [ ] Threats, Alerts and Intelligence pages with "Why was this flagged?"
+- [ ] Alert triage: status workflow (new/acknowledged/investigating/resolved/false positive), explicit reversible suppression
+- [ ] Threats and Intelligence pages; "Why was this flagged?" detail beyond the current evidence panel
 
 ---
 

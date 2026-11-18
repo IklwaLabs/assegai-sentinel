@@ -364,8 +364,8 @@ def render_not_implemented(manifest: dict) -> str:
     <section class="section" id="not-implemented">
       <h2>Not in this release</h2>
       <p class="section-lede">
-        These are absent from the interface rather than faked. A threat rule that cannot fire,
-        or a device list inferred from nothing, would be worse than an honest gap.
+        These are absent from the interface rather than faked. A detector that guessed, or a
+        device list inferred from nothing, would be worse than an honest gap.
       </p>
       <ul class="gap-list">{items}</ul>
     </section>"""

@@ -63,6 +63,8 @@ cargo run -p sentinel-cli -- doctor
 cargo run -p sentinel-cli -- interfaces
 cargo run -p sentinel-cli -- capture --interface <id> --duration 30
 cargo run -p sentinel-cli -- analyze fixtures/demo-traffic.pcap
+cargo run -p sentinel-fixtures -- fixtures/detection-traffic.pcap --detections
+cargo run -p sentinel-cli -- analyze fixtures/detection-traffic.pcap
 cargo run -p sentinel-cli -- export --json --limit 100
 
 # Desktop
@@ -172,12 +174,28 @@ boundary with a named local interface rather than casting at every access.
 5. Add tests that do not require the driver: the queue, the classification and the config
    translation are all testable without hardware.
 
-## Adding a threat rule
+## Adding a detector
 
-Not implemented yet; this is the intended shape. A rule takes a flow plus its context and
-returns a finding with a score and an explanation. Rules run inside the engine, never in a
-frontend. Every finding must be able to explain itself in one sentence, because the interface
-shows that sentence to a person deciding whether to act.
+Detection lives in `crates/sentinel-detect`; the engine only calls it. To add a detector:
+
+1. Create a module with a struct that has `new`, `reset` and
+   `observe(&NormalizedPacket) -> Option<Observation>`. Keep it free of I/O and of the wall
+   clock: time is the packet's own timestamp, which is what makes captures replayable.
+2. Build an `Observation` with a stable identity, a one-line title, a plain-language detail,
+   the evidence behind it, and the advice a person should follow. Severity (impact if real) and
+   confidence (how sure the detector is) are separate fields.
+3. Add the module to `DetectionEngine` in `lib.rs`, including `reset`.
+4. If it introduces a new `FindingKind`, add the variant and its `as_str`/`parse` pair. Stored
+   rows use the string, so the pair must round-trip; an unreadable identifier is reported as
+   corruption rather than defaulted.
+5. Bound every table. A spoofed source address is free, and an attacker can use that to make a
+   detector allocate without limit.
+6. Test the positive case, the negative case, the boundary, and a benign look-alike. Then add
+   an integration test in `crates/sentinel-core/tests/offline_pipeline.rs` if the detector can
+   be reached from a capture file.
+
+Emit on threshold crossing, not on every packet after it. Further observations update the same
+finding rather than producing new ones.
 
 ## Before you open a pull request
 

@@ -20,13 +20,20 @@ sending anything anywhere.
 - **Reconstructs bidirectional flows** keyed on a canonically ordered endpoint pair, with
   initiator detection from port roles.
 - **Aggregates traffic** into one-second buckets for the chart, in both directions.
+- **Detects behaviours worth reporting**, deterministically and from packet metadata only:
+  sustained ARP address conflicts, port scans, host sweeps, malformed TCP flag combinations,
+  cleartext protocols, possible beaconing and large outbound transfers. Each finding carries
+  its own evidence, a severity (impact if real) and a confidence (how sure Sentinel is), kept
+  separate on purpose. Nothing is inferred from payload bytes.
 - **Analyses PCAP files offline through the same pipeline** as live capture, so results match.
 - **Reports packet loss** from the driver, the ingress queue and the decoder separately, and
   says so on every surface. Incomplete data is labelled as incomplete.
-- **Stores flows in SQLite** in one batched writer thread, with configurable retention.
+- **Stores flows and findings in SQLite** in one batched writer thread, with configurable
+  retention.
 
-Not yet implemented, and deliberately absent from the interface rather than faked: threat rules,
-process attribution, device inventory, DNS correlation, and desktop capture-file import.
+Not yet implemented, and deliberately absent from the interface rather than faked: threat
+intelligence feeds, alert triage workflow, process attribution, device inventory, DNS
+correlation, and desktop capture-file import.
 
 ## Why it is built this way
 
@@ -48,6 +55,7 @@ process attribution, device inventory, DNS correlation, and desktop capture-file
 | `crates/sentinel-platform` | The only crate with `cfg(target_os)`. Paths, capabilities, settings. |
 | `crates/sentinel-parser` | L2–L4 decoder and a dependency-free PCAP reader/writer. |
 | `crates/sentinel-flow` | Flow keys, the flow table, traffic aggregation. |
+| `crates/sentinel-detect` | Deterministic detectors and the finding model, with no I/O. |
 | `crates/sentinel-storage` | SQLite schema, migrations, batched writer, retention. |
 | `crates/sentinel-capture` | Capture backends and the bounded ingress queue. |
 | `crates/sentinel-response` | Consent gate, ARP deception detection and the audit trail. |
@@ -79,7 +87,7 @@ document — architecture, how to run it, how to control it, troubleshooting. St
 | [CONTRIBUTING.md](CONTRIBUTING.md) | What a contribution should look like |
 | [SECURITY.md](SECURITY.md) | What Sentinel does with your data, and how to report a vulnerability |
 | [docs/PACKET_PIPELINE.md](docs/PACKET_PIPELINE.md) | How a frame becomes a connection, and where data can be lost |
-| [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | The detection design, and why it is not implemented yet |
+| [docs/DETECTION_ENGINE.md](docs/DETECTION_ENGINE.md) | What Sentinel detects, how severity and confidence differ, and the rules it refuses to break |
 | [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) | Per-platform drivers, privileges and limitations |
 | [docs/MATURITY-ANALYSIS.md](docs/MATURITY-ANALYSIS.md) | What mature NSM tools have that Sentinel lacks, and the proposed order to build it |
 
@@ -123,6 +131,7 @@ cargo run -p sentinel-cli -- doctor      # is capture possible here?
 cargo run -p sentinel-cli -- interfaces
 cargo run -p sentinel-cli -- capture --duration 30
 cargo run -p sentinel-cli -- analyze fixtures/demo-traffic.pcap
+cargo run -p sentinel-cli -- findings          # what has been detected and stored
 
 # Desktop application. The custom-protocol feature is required: without it the binary
 # opens a black window, because it looks for the Vite dev server instead of the
@@ -148,6 +157,18 @@ cargo run -p sentinel-cli -- analyze fixtures/demo-traffic.pcap
 The fixture is generated rather than committed as a binary, so its contents are reviewable in
 source: a TLS-shaped exchange, DNS with a response, an unanswered query, ICMP, ARP, a VLAN
 frame, a non-initial IPv4 fragment, a malformed frame, and two connections to unexpected ports.
+Nothing in it crosses a detection threshold.
+
+To see detection working without a live network or elevated privileges:
+
+```bash
+cargo run -p sentinel-fixtures -- fixtures/detection-traffic.pcap --detections
+cargo run -p sentinel-cli -- analyze fixtures/detection-traffic.pcap
+```
+
+That capture contains an ARP address takeover, a port scan, a host sweep, a cleartext Telnet
+exchange and a null-flag probe. Its test asserts that the engine reports exactly one finding
+per behaviour, so the demo cannot drift away from the detectors.
 
 ## License
 

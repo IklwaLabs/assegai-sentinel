@@ -21,7 +21,7 @@ read one thing, read that.
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | What a contribution should look like |
 | [SECURITY.md](../SECURITY.md) | What Sentinel does with your data, and how to report a vulnerability |
 | [PACKET_PIPELINE.md](PACKET_PIPELINE.md) | How a frame becomes a connection, and where data can be lost |
-| [DETECTION_ENGINE.md](DETECTION_ENGINE.md) | The detection design, and why it is not implemented yet |
+| [DETECTION_ENGINE.md](DETECTION_ENGINE.md) | What Sentinel detects, and how severity and confidence differ |
 | [PLATFORM_SUPPORT.md](PLATFORM_SUPPORT.md) | Per-platform drivers, privileges and limitations |
 | [MATURITY-ANALYSIS.md](MATURITY-ANALYSIS.md) | Research notes: what mature NSM tools have that Sentinel lacks, and a proposed ordering |
 
@@ -71,6 +71,8 @@ will use, and says why. It never renders a link to a file that does not exist.
 cargo run -p sentinel-cli -- doctor      # can this machine capture?
 cargo run -p sentinel-cli -- interfaces
 cargo run -p sentinel-cli -- analyze fixtures/demo-traffic.pcap
+cargo run -p sentinel-fixtures -- fixtures/detection-traffic.pcap --detections
+cargo run -p sentinel-cli -- analyze fixtures/detection-traffic.pcap   # five detections
 ```
 
 ## Licence

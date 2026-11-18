@@ -1,9 +1,13 @@
 //! Typed configuration schema.
 //!
 //! Only sections that affect implemented behaviour exist. A section for a feature that
-//! is not implemented would be a lie in the settings file, so detection, threat
-//! intelligence and notification sections are added with the milestones that need them
-//! (see `ROADMAP.md`), together with the migrations that read them.
+//! is not implemented would be a lie in the settings file, so threat intelligence and
+//! notification sections are added with the milestones that need them (see `ROADMAP.md`),
+//! together with the migrations that read them.
+//!
+//! Detection is deliberately absent here: its thresholds are constants in `sentinel-detect`,
+//! not user settings. Moving them into this file before there is a control to change them
+//! would create a setting whose only supported value is the default.
 //!
 //! All fields have `serde` defaults, so a config file written by an older build always
 //! loads. Unknown keys are rejected rather than silently ignored: a typo in a security

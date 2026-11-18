@@ -1,168 +1,138 @@
 # The Detection Engine
 
 Sentinel is a monitoring tool first and a threat detector second. This document explains what
-that ordering means, what exists today, and what is designed to exist next.
+that ordering means, what the engine actually detects today, and the rules it refuses to break.
 
-## Status: not yet implemented
+## Status
 
-There is no detection engine in v0.1. No rule runs, no risk score is produced, and no alert
-fires. The `riskScore` field on a connection is `null` for this reason.
+The detection engine is implemented in `crates/sentinel-detect` and runs on every decoded
+packet, before flow tracking. Findings are:
 
-The interface reflects that honestly: the connection detail panel says "Not yet assessed" rather
-than showing a zero, which would read as "safe" — a claim Sentinel has not earned. Nothing in
-the navigation is a disabled placeholder pretending the feature exists.
+- raised once when a threshold is crossed, then updated in place as further observations arrive
+- deduplicated by a stable identity, so one port scan is one finding rather than 20 000 alerts
+- stored in SQLite (migration `0003`), bounded by the configured flow retention period
+- shown in the desktop application under **Detect → Detections** and by `sentinel findings`
+- included in every engine snapshot, with a count and an explicit
+  `findingsSuppressed` value when the in-memory cap was reached
 
-This document describes the design that is committed to, so that the first rule is written
-against a shape rather than improvised.
+`riskScore` on a connection is still `null`. Risk scoring would blend severity and confidence
+into one number, which this design deliberately avoids.
 
-## The two rules that will not change
+## Three separate judgements
 
-**1. Every finding must be able to explain itself in one sentence.**
+A finding carries three facts, never collapsed into one score:
 
-A person deciding whether to act on a finding needs to know what the system observed and why it
-mattered, without reading documentation. So a finding is not a score; it is an observation plus
-a reason:
+- **Severity** — how much damage the behaviour could cause *if it is real*. Critical, High,
+  Medium, Low, Info.
+- **Confidence** — how sure Sentinel is that the behaviour is real rather than normal traffic
+  that happens to look similar. High, Medium, Low.
+- **Advice** — what a person should do next, in plain language, written by the detector.
+
+A port scan from outside the local network is High severity and High confidence. A large upload
+is High severity and Medium confidence, because it might be ransomware staging and it might be
+the nightly backup. Presenting both as "critical" would be dishonest about the second.
+
+## Why detection runs before flow tracking
+
+ARP has no flow identity. Its frames carry no IP connection to key on, so a detector wired into
+the flow path would never see the one protocol whose finding is the most serious. The pipeline
+therefore runs detection on every decoded packet, then excludes fragments and non-IP frames from
+flow accounting:
 
 ```text
-BAD
-  "127 connections to this host on 24 ports in 40 seconds, none of which are
-   common services. That pattern is what a port scan looks like."
-
-GOOD
-  "Unusual score"
-  "risk: 72"
-  "anomaly"
+decode -> detect -> flow key -> flow update -> aggregate
 ```
 
-The second form is not merely unhelpful, it is actively harmful: a number with no explanation
-either gets ignored or gets over-trusted, and both outcomes are bad. A finding that cannot state
-its own reason in one sentence is not finished.
+## What is detected
 
-**2. Detection is local and offline.**
+Thresholds are constants in `crates/sentinel-detect`, not settings. A setting with no control to
+change it is a promise the interface cannot keep.
 
-No reputation service, no cloud lookup, no model download, no blocklist fetch. A rule may load
-a blocklist the user provides from a file; it may not fetch one. A network monitor that phones
-home to decide whether your traffic is suspicious has already shown that it cannot be trusted
-with the traffic.
+| Detector | Fires when | Known false-positive source |
+| --- | --- | --- |
+| ARP deception | Two MACs answer for one IPv4 address after the conflict is sustained: the incumbent answers *after* the challenger appears, or the challenger wins three times while the incumbent is silent | A DHCP hand-off that lingers, or a virtualisation host answering for a guest |
+| Port scan | One source contacts 20 distinct ports on one destination within 60 seconds | A monitoring agent or an application with many backends |
+| Host sweep | One source contacts 20 distinct hosts on one port within 60 seconds | Service discovery, vulnerability scanners an operator runs on purpose |
+| TCP flag anomaly | A header combination ordinary stacks do not produce (for example SYN and FIN together, or no flags at all) | Broken middleboxes and some embedded devices |
+| Cleartext protocol | A connection to FTP, Telnet, SMTP, TFTP, POP3 or IMAP by port | A service on a non-standard port is missed; a plaintext service on a TLS port is missed |
+| Possible beaconing | Eight or more successive connections to one destination with a mean interval between 5 seconds and 1 hour and jitter of at most 15% | Anything that polls: chat clients, mail, telemetry, update checks |
+| Large outbound transfer | More than 10 MiB of payload leaves for one public destination inside 60 seconds with an inbound:outbound ratio worse than 1:20 | Backups, uploads of video, cloud sync |
 
-This is not only a privacy position. It means a user in an air-gapped environment gets the same
-detection as everyone else, and that an adversary cannot poison the verdicts by feeding the
-detector.
+Single-packet disagreement is never acted on. One ARP address change is indistinguishable from a
+lease moving; a scan is a *set* of attempts, not one SYN.
 
-## The intended shape
+## What is deliberately not inspected
 
-```rust
-pub trait Rule: Send + Sync {
-    /// Stable identifier, recorded with every finding.
-    fn id(&self) -> &'static str;
+Payload bytes are never retained, and therefore never inspected — not even to look for a pattern.
+Every detector works from headers, timings and byte counts. This is why the cleartext detector is
+port-based: inferring plaintext from payload shape would require keeping the payloads, which
+would make Sentinel's central privacy promise false.
 
-    /// One-line, human-readable description of what this rule looks for.
-    fn description(&self) -> &'static str;
+It is also why there is no DNS-tunnelling detector yet. That rule needs DNS query parsing, not
+payload retention, and it is the next rule worth adding.
 
-    /// Inspects a flow, given the context it appeared in.
-    ///
-    /// Returning `None` means "nothing to report", which is the common case and must be cheap.
-    fn evaluate(&self, flow: &Flow, context: &RuleContext) -> Option<Finding>;
-}
-```
+## Determinism and bounded state
 
-`RuleContext` exists because most interesting signals are not visible in a single flow: beaconing
-is a timing regularity, DNS tunnelling is a name-length distribution, a scan is a *set* of
-destinations. So context carries what a flow alone cannot: recent flows, per-host connection
-counts, timing history, and the local address set.
+- **Deterministic.** Time enters only as the packet's own timestamp. There is no wall clock, no
+  timer and no random input, so replaying a capture file twice produces identical findings.
+- **Bounded.** Every table has a ceiling and a documented behaviour at that ceiling. A spoofed
+  source address is free; an attacker can send from a million addresses precisely to turn a
+  detector into a memory-exhaustion bug. The engine also caps the retained finding list at 512
+  and reports what it discarded rather than presenting a truncated list as complete.
+- **Quiet by construction.** A finding is emitted on the packet that crosses a threshold, and is
+  not re-emitted for every packet after it. Further observations update the same finding.
+- **Escalate, never de-escalate.** A finding's severity and confidence can rise as more evidence
+  arrives. They never fall, in memory or in the SQL upsert, so a quieter later observation cannot
+  bury an earlier serious one.
 
-A rule is a pure function of that input. It does not write to the database, does not emit
-directly, and does not block. It returns a `Finding`, and the engine decides what happens to it.
-That is what makes a rule testable against a fixture and replayable from a capture file.
+## Storage and retention
 
-### Findings
+A finding is stored as columns for the fields the interface sorts and filters on, plus JSON for
+evidence and advice. Stored enumerations use stable string identifiers; a row whose identifier
+this build cannot understand is reported as corruption rather than defaulted to "info", because
+a silently-downgraded alert is worse than a visible error.
 
-A finding carries:
+Findings follow the **flows** retention period. They are event records, not chart data: keeping a
+finding after the flow that caused it has been deleted would leave an alert with no supporting
+evidence.
 
-- the rule that produced it
-- the flow or entity it concerns
-- a severity, from a fixed small set
-- the one-sentence explanation
-- the observations that produced it, so the explanation is checkable rather than asserted
-- a timestamp
+## The response boundary
 
-Severity is a **label on a category the user understands** — critical, high, medium, low — not a
-floating-point score. A score invites the question "how high is high enough", which has no good
-answer. A category is a statement about urgency, and urgency is a judgement a human makes.
+Detection does not act. `crates/sentinel-response` contains the separate, consent-gated path that
+can construct a corrective ARP frame. It:
 
-Where a score is genuinely useful for *ranking* within a category, it may be present as a
-secondary sort key. It is never the headline.
+- requires a named authorisation (who and which network) before it will do anything
+- writes an audit record before acting
+- is exercised by its own tests, but is **not yet reachable from the application**: there is no
+  injector implementation in `sentinel-capture` and no CLI flag that invokes it
 
-## Planned rules, in the order they will be built
+That gap is stated here rather than implied away. The read-only guarantee in
+[SECURITY.md](../SECURITY.md) remains true in practice because nothing in the shipped binaries
+calls the response path.
 
-Ordered by how much they depend on the rest of the system, not by severity.
+## Testing
 
-**1. Port scan detection.** Many distinct destination ports to one host in a short window, few
-of them common services. Needs: per-host connection history, timing. The clearest signal in the
-set, and the best first rule to validate the design.
+A detector is a pure function of packets in order, so its tests are a table: feed frames, assert
+findings. No capture driver, no privileges, no network. Every detector has at least:
 
-**2. Unusual outbound volume.** A flow transferring substantially more than this machine's
-observed baseline for that destination. Needs: traffic history per endpoint, a baseline model.
-Careful: this is the rule most likely to produce false positives on a machine that has never seen
-a large download, and it must be tuned or it will train the user to ignore it.
-
-**3. DNS tunnelling.** Excessively long subdomains, high volume of unique names under one
-domain, unusually high entropy in labels. Needs: DNS query parsing and per-domain aggregation.
-
-**4. Beaconing.** Regular intervals between connections to the same host. Needs: timing history
-per endpoint. Effective against command-and-control, and prone to false positives against
-anything that polls — mail clients, chat applications, telemetry. Needs an interval tolerance
-and a minimum connection count.
-
-**5. Plaintext credentials.** Known protocols carrying credentials without TLS. Needs: payload
-inspection, which is the first feature that would retain payload bytes — and the reason
-`capturePayloadSamples` exists as an explicit, default-off setting.
-
-**6. Known-malicious destination match.** Only against a list the user supplies. Not against a
-fetched list, per the offline rule above.
-
-**7. New or unusual process for a destination.** Needs process attribution, which is not built
-yet and is the largest single piece of remaining platform work.
-
-## How rules will be evaluated
-
-- **Inside the engine**, on the task that already owns the flow table. Not in a frontend, and
-  not on a separate thread that would need a lock on the same state.
-- **After aggregation**, on a flow's current state rather than per packet. A rule that inspected
-  every packet would be a performance problem and, for most of these signals, would not work:
-  a scan is only visible as a set.
-- **Throttled per flow**, so a rule that fires on every packet of a long connection does not
-  produce a thousand identical findings.
-- **Deterministically**, so a capture file replayed twice produces the same findings. No
-  wall-clock dependence in a rule's decision, no randomness.
-
-## Testing rules
-
-A rule is a pure function, so a rule test is a table: given flows and context, assert the
-findings. No capture driver, no privileges, no network.
-
-Every rule needs at least:
-
-- a **positive** case that must fire, from a generated fixture
-- a **negative** case that must not fire, because a rule that only has positive tests will fire
-  on everything
+- a **positive** case that must fire
+- a **negative** case that must not, because a detector with only positive tests fires on everything
 - a **boundary** case at the threshold
-- a **benign pattern that resembles it**, because that is the case that decides whether the rule
-  is usable
+- a **benign look-alike**, the case that decides whether the detector is usable
 
-That last one matters more than it sounds. A port-scan rule that also fires on a browser opening
-many connections is worse than no rule, because it trains the user to dismiss findings. Each
-planned rule above names its likely false-positive source for this reason.
+The integration tests in `crates/sentinel-core/tests/offline_pipeline.rs` replay generated PCAP
+files through the real capture chain and assert the same findings a live session would produce.
+`fixtures/detection-traffic.pcap` exists for that purpose at the CLI level: its own test asserts
+that replaying it produces exactly one finding per behaviour, so a demonstration of the engine
+cannot drift away from what the engine does.
 
 ## What Sentinel will not do
 
-- **Block traffic.** Sentinel is a monitor. Injecting or dropping packets to enforce a policy is
-  a different product with different risks, and doing it here would change what a capture
-  captures.
+- **Block traffic automatically without consent.** The response path is opt-in, named and
+  audited. There is no silent enforcement.
 - **Send data anywhere.** See [SECURITY.md](../SECURITY.md).
-- **Score without explaining.** Covered above.
-- **Learn from your traffic in the background.** A model trained silently on a user's traffic,
-  with no way to inspect or delete it, is surveillance with a nice interface. Baselines are
-  computed, shown, and resettable.
-- **Claim a verdict from a single observation.** A finding is an observation worth your attention,
-  not a conclusion. The wording reflects that.
+- **Score without explaining.** A finding that cannot state its own reason is not finished.
+- **Learn from your traffic in the background.** No silent model training. A future baseline must
+  be computed, shown and resettable.
+- **Claim a verdict from a single observation.** A finding is an observation worth attention, not
+  a conclusion. The wording reflects that.

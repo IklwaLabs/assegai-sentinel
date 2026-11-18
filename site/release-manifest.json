@@ -16,7 +16,7 @@
     "name": "Sentinel",
     "vendor": "IklwaLabs",
     "tagline": "Local-first network visibility and threat detection.",
-    "summary": "Sentinel watches the traffic on your machine, reconstructs the connections that carry it, stores what it finds in a local database, and tells you what is happening. No account, no cloud service, nothing leaves the machine.",
+    "summary": "Sentinel watches the traffic on your machine, reconstructs the connections that carry it, inspects each packet for known attack behaviour, stores what it finds in a local database, and tells you what is happening. No account, no cloud service, nothing leaves the machine.",
     "license": "Apache-2.0",
     "repository": "https://github.com/IklwaLabs/assegai-sentinel",
     "reference_pdf": "docs/Sentinel-Reference.pdf"
@@ -25,8 +25,8 @@
     {
       "label": "IklwaLabs",
       "url": "https://github.com/IklwaLabs/assegai-sentinel",
-      "visibility": "private",
-      "note": "Primary repository. Ask IklwaLabs for access."
+      "visibility": "public",
+      "note": "Primary repository. Read, clone and file issues freely."
     },
     {
       "label": "ericalfonce",
@@ -190,6 +190,18 @@
       "body": "Offline results match live capture exactly, because there is one decoder and one flow engine behind both."
     },
     {
+      "title": "Detects attack behaviour on every decoded packet",
+      "body": "ARP address deception, port scans, host sweeps, TCP flag anomalies, cleartext protocol use, possible beaconing and large outbound transfers. Detection runs before flow tracking, because ARP frames carry no connection to key on."
+    },
+    {
+      "title": "Separates severity from confidence",
+      "body": "Every finding carries how much damage the behaviour could cause, how sure Sentinel is that it is real, and what to do next. No single risk score blends the three, so a nightly backup and a ransomware staging run are not presented as the same thing."
+    },
+    {
+      "title": "Shows detections in the app and in the terminal",
+      "body": "Detect \u2192 Detections in the desktop application, and 'sentinel findings' on the command line. Detections are stored in SQLite with the same retention as flows, deduplicated by identity, and counted when an in-memory cap is reached rather than silently dropped."
+    },
+    {
       "title": "Reports incomplete data as incomplete",
       "body": "Packet loss is tracked separately for the driver, the ingress queue and the decoder, and every surface says which of the three lost frames."
     },
@@ -200,8 +212,16 @@
   ],
   "not_implemented": [
     {
-      "title": "Threat rules",
-      "body": "No detection engine ships in this release. The rule model and its evaluation contract are designed in docs/DETECTION_ENGINE.md, but presenting a rule that cannot fire would be worse than showing nothing."
+      "title": "Threat intelligence and signatures",
+      "body": "Detection is behavioural. Sentinel carries no signature feed, no domain or IP reputation list, and no online lookup, so it cannot name a campaign or match a file hash. A detector that guessed a family from traffic shape would be inventing an attribution."
+    },
+    {
+      "title": "Protocol-aware detection",
+      "body": "DNS, DHCP, TLS and HTTP are decoded as flows but not yet examined for tunnelling, rogue DHCP servers, certificate anomalies or fingerprinting. The cleartext detector works from well-known ports, which means a plaintext service on an unusual port is missed."
+    },
+    {
+      "title": "Active network response",
+      "body": "The consent gate, conflict state machine and corrective ARP frame builder exist and are tested in 'sentinel-response', but nothing in the application can send a frame yet. Sentinel cannot change your network, even with every response setting enabled. SECURITY.md states this plainly."
     },
     {
       "title": "Process attribution",
@@ -238,6 +258,10 @@
       "purpose": "Analyse a PCAP file offline, no privileges needed."
     },
     {
+      "command": "sentinel findings --limit 20",
+      "purpose": "List stored detections, most severe first."
+    },
+    {
       "command": "sentinel export flows.csv",
       "purpose": "Export stored flows as CSV or JSON."
     },
@@ -262,7 +286,7 @@
     ],
     "notes": [
       "The custom-protocol feature is not optional. Without it the desktop binary looks for the Vite dev server instead of the assets embedded in the executable, and opens a black window.",
-      "The repository is private. You need an invitation from IklwaLabs to clone it.",
+      "The repository is public. Clone it, build it and run the test suite without asking anyone.",
       "docs/Sentinel-Reference.pdf is the whole product in one document: architecture, how to run it, how to control it, troubleshooting."
     ]
   },
@@ -297,7 +321,11 @@
     },
     {
       "q": "Does it detect threats?",
-      "a": "Not in this release. The product is named for it and the roadmap commits to it, but v0.1.0 ships the capture-to-storage pipeline and none of the rules. docs/DETECTION_ENGINE.md explains the design."
+      "a": "Yes, within limits it states. It finds ARP address deception, port scans, host sweeps, malformed TCP flag combinations, connections to cleartext protocols, periodic beacon-like connections and unusually large outbound transfers. It does not use signatures, reputation feeds or payload inspection, and it will not tell you the name of a malware family. Every finding says what it observed and how confident it is."
+    },
+    {
+      "q": "Can Sentinel block or stop an attack?",
+      "a": "No. This release is read-only: it captures and analyses, and has no packet-injection path. The machinery for a narrowly scoped corrective ARP reply is written and tested but not reachable from the application. SECURITY.md documents both the guarantee and the conditions any future response would have to meet."
     }
   ],
   "footer": {

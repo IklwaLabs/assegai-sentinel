@@ -25,22 +25,31 @@ directory. Nothing is written anywhere else except log files, in the same direct
 
 **Sentinel does not retain packet payloads.** It decodes frames into headers, flows and
 aggregate counters. The payload bytes of a packet are not stored, and the database schema has no
-column for them. A setting exists to retain small payload samples as evidence for future threat
-rules; it is off by default, and enabling it changes what is written to your own disk, not what
-leaves it.
+column for them. Detection works only from headers, timings and byte counts; it never reads
+packet contents, not even to look for a pattern.
 
-Note: that payload-retention setting was removed in v0.2. Packets are deliberately never
-stored, so there was nothing for it to control, and a setting that promises behaviour no code
-performs is worse than no setting. See [docs/MATURITY-ANALYSIS.md](docs/MATURITY-ANALYSIS.md).
+An earlier build shipped a `capturePayloadSamples` setting that no code ever read. It was
+removed in v0.2: packets were already never stored, so there was nothing for it to control, and a
+setting that promises behaviour no code performs is worse than no setting. See
+[docs/MATURITY-ANALYSIS.md](docs/MATURITY-ANALYSIS.md).
 
 ## Sentinel and your network: read by default, respond only with your consent
 
 **Sentinel does not modify your network unless you explicitly turn active response on.** Out of
-the box it only reads. There is no packet injection, no ARP spoofing, no DNS manipulation and
-no traffic shaping anywhere in the codebase.
+the box it only reads.
 
-That guarantee used to be unconditional, and it was worth something. It is now conditional,
-and the condition is designed to be hard to satisfy by accident:
+Two separate facts, both true in this build:
+
+1. **The shipped binaries contain no packet-injection path.** There is no injector in
+   `sentinel-capture`, no send API exposed to the engine, and no command that invokes one.
+   Today Sentinel cannot change your network, even if every response setting were enabled.
+2. **The response machinery exists and is tested, but is not reachable.** `sentinel-response`
+   holds the consent gate, the sustained-conflict state machine and the corrective-frame
+   constructor that a future injector would use. Nothing in the application calls it yet.
+
+The read-only guarantee used to be unconditional, and it was worth something. It is now
+conditional *in design*, because that machinery exists; the conditions are enforced inside
+`sentinel-response` and are designed to be hard to satisfy by accident:
 
 1. **Off by default.** Every existing installation upgrades into "read only". Turning response
    on is never a side effect of an upgrade, a config migration or a new default.
@@ -56,10 +65,10 @@ and the condition is designed to be hard to satisfy by accident:
    when two machines are both answering for the same address, or when a new claimant takes an
    address and holds it.
 
-**What response can do.** Today, one thing: send a *gratuitous ARP reply* that re-asserts an
-address to its true owner, repairing hosts on your segment whose caches were poisoned. It does
-not modify DNS, does not block or shape traffic, and does not transmit anything that is not a
-direct correction of a specific, detected fault.
+**What response will be able to do once it is reachable.** One thing: send a *gratuitous ARP
+reply* that re-asserts an address to its true owner, repairing hosts on your segment whose caches
+were poisoned. It does not modify DNS, does not block or shape traffic, and does not transmit
+anything that is not a direct correction of a specific, detected fault.
 
 **What response deliberately does not do.** It does not deauthenticate anyone, does not touch
 802.11 management frames, and does not attempt to evict or interfere with access points.

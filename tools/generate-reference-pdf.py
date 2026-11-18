@@ -483,6 +483,7 @@ def cli_table(facts: Facts, styles: dict[str, ParagraphStyle]) -> Table:
         "interfaces": "List every network interface, with addresses and whether it can be captured",
         "capture": "Monitor an interface live and print statistics as they change",
         "status": "Report the current session state, totals and loss counters",
+        "findings": "List stored detections, most severe first",
         "analyze": "Analyse a PCAP file and report the connections it contains",
         "export": "Write stored connections to CSV or JSON",
         "doctor": "Report whether capture is possible here, and what to do if not",
@@ -495,6 +496,7 @@ def cli_table(facts: Facts, styles: dict[str, ParagraphStyle]) -> Table:
         # line. An em dash reads as "nothing to set" without looking like a missing value.
         flags = {
             "capture": ["--interface", "--duration", "--connections"],
+            "findings": ["--limit"],
             "analyze": ["--all"],
             "export": ["path", "--json", "--limit"],
             "prune": ["--dry-run"],
@@ -715,8 +717,9 @@ def build_story(facts: Facts, styles: dict[str, ParagraphStyle], page_numbers: d
                 "Reconstruct bidirectional connections, identifying which side opened them.",
                 "Aggregate traffic into one-second buckets, split by direction.",
                 "Analyse saved PCAP files through the same pipeline used for live capture, so the two agree.",
+                "Detect and explain behaviours worth reporting: sustained ARP conflicts, port scans, host sweeps, malformed TCP flags, cleartext protocols, possible beaconing and large outbound transfers. Severity and confidence are separate.",
                 "Report packet loss from the driver, the queue and the decoder separately, on every surface.",
-                "Store connections in one batched SQLite writer thread, with configurable retention.",
+                "Store connections and findings in one batched SQLite writer thread, with configurable retention.",
             ],
             styles,
         )
@@ -724,11 +727,11 @@ def build_story(facts: Facts, styles: dict[str, ParagraphStyle], page_numbers: d
     story.append(para("It does not yet do", styles["h2"]))
     story.append(
         para(
-            "Threat rules, process attribution, device inventory, DNS correlation and desktop "
-            "capture-file import are not implemented. They are absent from the interface rather "
-            "than faked: there are no disabled buttons showing fabricated results, and a "
-            "connection's risk score is shown as &quot;not yet assessed&quot; rather than as zero, "
-            "because zero would read as <i>safe</i>, which Sentinel has not earned.",
+            "Threat intelligence feeds, alert triage, process attribution, device inventory, DNS "
+            "correlation and desktop capture-file import are not implemented. They are absent "
+            "from the interface rather than faked: there are no disabled buttons showing "
+            "fabricated results, and a connection's risk score is shown as &quot;not yet assessed&quot; "
+            "rather than as zero, because zero would read as <i>safe</i>, which Sentinel has not earned.",
             styles["body"],
         )
     )
@@ -747,7 +750,7 @@ def build_story(facts: Facts, styles: dict[str, ParagraphStyle], page_numbers: d
     story.append(section(2, "Architecture", styles))
     story.append(
         para(
-            "The workspace is nine crates plus two applications. Dependencies point strictly "
+            "The workspace is ten crates plus two applications. Dependencies point strictly "
             "downward: a crate never imports a crate that depends on it. There is no shared "
             "&quot;utils&quot; bucket and no circular reference, because both would let two features "
             "grow entangled before anyone noticed.",
@@ -771,6 +774,8 @@ sentinel-capture sentinel-flow  sentinel-storage
               sentinel-platform      interface discovery, paths, capabilities
                      |
                sentinel-common       errors, time, config, shared types
+
+ sentinel-detect depends only on common and response; no I/O, no sockets.
 """,
             styles,
         )
@@ -846,13 +851,15 @@ sentinel-capture sentinel-flow  sentinel-storage
    |
  [3] decode              Ethernet > VLAN > IPv4/IPv6 > TCP/UDP/ICMP
    |                     failures counted, never fatal
- [4] flow key            canonically ordered endpoint pair + protocol
- [5] flow table          lookup or create; update; mark direction
- [6] aggregation         one-second buckets, upload/download split
+ [4] detection           header/timing/volume rules; finding on threshold crossing
+   |                     (before flow keying: ARP has no flow identity)
+ [5] flow key            canonically ordered endpoint pair + protocol
+ [6] flow table          lookup or create; update; mark direction
+ [7] aggregation         one-second buckets, upload/download split
    |
-   +---> [7] snapshot     every 250ms, throttled, to the interface
+   +---> [8] snapshot     every 250ms, throttled, to the interface
    |
- [8] storage             every 5s, batched, in the writer thread
+ [9] storage             every 5s, batched, in the writer thread
 """,
             styles,
         )
@@ -895,7 +902,7 @@ sentinel-capture sentinel-flow  sentinel-storage
                 "already has one, splitting its byte counts in half. They are counted and excluded.",
                 "<b>Truncation is not an error.</b> A small snaplen produces short frames. That is "
                 "reported as truncated, separately from malformed, because the two mean different things.",
-                "<b>ARP is decoded but has no flow.</b> It is real traffic with no connection identity.",
+                "<b>ARP is decoded but has no flow.</b> It is real traffic with no connection identity, so it is inspected by detection and excluded from flow accounting.",
                 "<b>ICMP is a portless flow.</b> It is tracked rather than dropped, with no port to attribute.",
                 "<b>Direction and locality are separate facts.</b> The flow key is canonically "
                 "ordered, so source/destination comes from initiator detection, while local/remote is "
@@ -903,6 +910,43 @@ sentinel-capture sentinel-flow  sentinel-storage
                 "column labelled &quot;remote&quot; would display your own address to you.",
             ],
             styles,
+        )
+    )
+
+    story.append(Spacer(1, 3 * mm))
+    story.append(para("What is detected", styles["h2"]))
+    story.append(
+        para(
+            "Detection runs on every decoded frame, before flow accounting, because ARP has no "
+            "flow key and a detector downstream of the flow table would never see it. Findings "
+            "are deduplicated by a stable identity, emitted when a threshold is crossed, and "
+            "updated in place afterwards. They carry severity (impact if real), confidence (how "
+            "sure the detector is) and advice as three separate facts, never a blended score.",
+            styles["body"],
+        )
+    )
+    story.append(
+        data_table(
+            ["Detector", "Fires when", "Known false-positive source"],
+            [
+                ["ARP deception", "Two MACs answer for one address after the conflict is sustained", "A lingering DHCP hand-off; a virtualisation host"],
+                ["Port scan", "20 distinct ports on one destination in 60s", "Monitoring agents; apps with many backends"],
+                ["Host sweep", "20 distinct hosts on one port in 60s", "Service discovery and authorised scanners"],
+                ["TCP flag anomaly", "A header combination ordinary stacks do not produce", "Broken middleboxes; embedded devices"],
+                ["Cleartext protocol", "A connection to FTP, Telnet, SMTP, TFTP, POP3 or IMAP by port", "Non-standard ports are missed by design"],
+                ["Possible beaconing", "8+ connections, mean interval 5s-1h, jitter <= 15%", "Anything that polls: chat, mail, telemetry"],
+                ["Large outbound transfer", "10 MiB out in 60s with worse than 1:20 reply ratio", "Backups, video uploads, cloud sync"],
+            ],
+            styles,
+            widths=[1.0, 1.8, 1.6],
+        )
+    )
+    story.append(Spacer(1, 2 * mm))
+    story.append(
+        para(
+            "Nothing is inferred from payload bytes, which are never retained. That is why the "
+            "cleartext detector is port-based, and why DNS tunnelling is not claimed yet.",
+            styles["small"],
         )
     )
 
@@ -976,6 +1020,10 @@ cargo run -p sentinel-cli -- interfaces
 cargo run -p sentinel-fixtures -- fixtures/demo-traffic.pcap
 cargo run -p sentinel-cli -- analyze fixtures/demo-traffic.pcap
 
+# 3b. And one that contains attacks, to see the detection engine fire
+cargo run -p sentinel-fixtures -- fixtures/detection-traffic.pcap --detections
+cargo run -p sentinel-cli -- analyze fixtures/detection-traffic.pcap
+
 # 4. Monitor for 30 seconds. Needs an elevated shell
 cargo run -p sentinel-cli -- capture --duration 30
 
@@ -1014,6 +1062,9 @@ cargo build --release -p sentinel-desktop --features custom-protocol
                 "<font face='Courier'>sentinel analyze fixtures/demo-traffic.pcap</font> should report "
                 "14 packets and 8 connections. If it does not, the decoder or flow engine is broken, "
                 "not your network.",
+                "<font face='Courier'>sentinel analyze fixtures/detection-traffic.pcap</font> should "
+                "report five detections: one critical ARP takeover and four reconnaissance or "
+                "cleartext findings. If it reports none, the detection stage is not running.",
             ],
             styles,
         )
@@ -1110,6 +1161,7 @@ sentinel prune
                 ["Overview", "Live rates, totals, the traffic chart, the busiest connections, protocol mix, and any data-loss notice"],
                 ["Traffic", "The traffic chart at full size"],
                 ["Connections", "The sortable, filterable connection table with a detail panel"],
+                ["Detections", "Findings raised so far, most severe first, with evidence and advice"],
                 ["PCAP analysis", "Analyse a capture file through the same engine as live monitoring"],
                 ["Interfaces", "Adapter inventory with capture readiness and reasons"],
                 ["Settings", "Privacy, capture, retention and diagnostics, plus where data is stored"],
@@ -1316,6 +1368,7 @@ Linux    ~/.local/share/iklwa-sentinel
                 ["flows", "Reconstructed connections with per-direction byte and packet counts"],
                 ["traffic_samples", "One-second upload/download buckets for the chart"],
                 ["protocol_totals", "Cumulative per-protocol totals, written as session deltas"],
+                ["findings", "Detections with severity, confidence, evidence, advice and occurrence count"],
             ],
             styles,
             widths=[1, 3],
@@ -1338,7 +1391,7 @@ Linux    ~/.local/share/iklwa-sentinel
     story.extend(
         bullets(
             [
-                "Connections and traffic samples are deleted once they are older than the configured period.",
+                "Connections, traffic samples and findings are deleted once they are older than the configured period. Findings follow the connection period: they are event records, not chart data.",
                 "The sweep runs every 30 seconds while the engine is running, and inside the writer's transaction.",
                 "<font face='Courier'>sentinel prune --dry-run</font> shows what would be removed without removing it.",
                 "Sentinel stores connection metadata, not packets. There is no column anywhere in the schema for payload bytes.",
@@ -1513,7 +1566,7 @@ grep -rn "TcpStream|UdpSocket|connect(" crates/ apps/ --include=*.rs
             [
                 ["Outbound network connections", "None. No HTTP client, no resolver, no telemetry, no update check."],
                 ["Packet payloads stored", "No. Headers, flows and aggregates only; the schema has no payload column."],
-                ["Traffic modification", "None. Sentinel reads. No injection, spoofing or shaping."],
+                ["Traffic modification", "None in this build. The response crate can construct a corrective ARP frame, but no injector is implemented and nothing calls it."],
                 ["Account or sign-in", "None."],
                 ["Required privileges", "Elevated, for reading frames from an adapter. Nothing more."],
                 ["Filesystem reach", "Its own data directory only."],
@@ -1580,20 +1633,26 @@ grep -rn "TcpStream|UdpSocket|connect(" crates/ apps/ --include=*.rs
 
     # --- 14. Extending -----------------------------------------------------
     story.append(section(14, "Extending it", styles))
-    story.append(para("Adding a threat rule", styles["h2"]))
+    story.append(para("Adding a detector", styles["h2"]))
     story.extend(
         bullets(
             [
-                "A rule takes a flow plus its context and returns a finding with a severity and a "
-                "one-sentence explanation. Most interesting signals are not in a single flow: a "
-                "beacon is a timing regularity, a scan is a set of destinations.",
-                "Rules run inside the engine on the task that owns the flow table, after "
-                "aggregation, throttled per flow, and deterministically. A capture file replayed "
-                "twice must produce identical findings.",
-                "Every finding must explain itself in one sentence. A score with no explanation "
-                "either gets ignored or over-trusted, and both are bad.",
-                "Each rule needs a positive case, a negative case, a boundary case, and a benign "
-                "pattern that resembles it. The last one decides whether the rule is usable.",
+                "Detection lives in sentinel-detect; the engine only calls it. A detector has "
+                "<font face='Courier'>new</font>, <font face='Courier'>reset</font> and "
+                "<font face='Courier'>observe(&amp;NormalizedPacket) -&gt; Option&lt;Observation&gt;</font>, "
+                "and is free of I/O and of the wall clock: time is the packet's own timestamp, which "
+                "is what makes a capture replayable.",
+                "Detection runs on every decoded packet, before flow tracking. ARP has no flow "
+                "identity, so a detector placed after the flow table would never see the protocol "
+                "whose finding is the most serious.",
+                "Build an Observation with a stable identity, a one-line title, a plain-language "
+                "detail, the evidence behind it, and the advice a person should follow. Severity "
+                "(impact if real) and confidence (how sure the detector is) are separate fields.",
+                "Bound every table. A spoofed source address is free, and an attacker can use that "
+                "to make a detector allocate without limit. Emit on threshold crossing, not on every "
+                "packet after it; further observations update the same finding.",
+                "Each detector needs a positive case, a negative case, a boundary case, and a benign "
+                "pattern that resembles it. The last one decides whether the detector is usable.",
             ],
             styles,
         )

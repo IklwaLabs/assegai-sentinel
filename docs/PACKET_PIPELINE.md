@@ -19,18 +19,21 @@ numbers on screen are only correct if these steps are right.
 [3] decode                Ethernet -> VLAN -> IPv4/IPv6 -> TCP/UDP/ICMP -> NormalizedPacket
    |                        failures are counted, never fatal
    v
-[4] flow key              canonical endpoint pair + protocol
+[4] detection             header/timing/volume rules; a finding is emitted on threshold crossing
+   |                        (runs before flow keying: ARP has no flow identity)
+   v
+[5] flow key              canonical endpoint pair + protocol
    |
    v
-[5] flow table            lookup or create; update counters; mark direction
+[6] flow table            lookup or create; update counters; mark direction
    |
    v
-[6] aggregation           1-second buckets, upload/download split
+[7] aggregation           1-second buckets, upload/download split
    |
-   +------> [7] snapshot  every 250ms, throttled, to the UI
+   +------> [8] snapshot  every 250ms, throttled, to the UI
    |
    v
-[8] storage               every 5s, batched, in the writer thread
+[9] storage               every 5s, batched, in the writer thread
 ```
 
 Steps 1 and 2 are separate because they have different failure modes. Capture blocking on a
@@ -83,11 +86,19 @@ Specific cases that matter:
 | VLAN tags | Unwrapped, up to a bounded depth of stacked tags | A trunk capture must decode the inner protocol, not stop at 802.1Q. |
 | Non-initial IPv4 fragment | Decoded, then **excluded from flow accounting** | It has an IP header but no ports. Keying it would create a second portless flow for a connection that already has one, splitting its byte counts. |
 | Truncated by snaplen | Decoded from what is present, `truncated` set | A small snaplen must not look like a malformed frame. |
-| ARP | Decoded, no flow | It is real traffic with no flow identity. |
+| ARP | Decoded, inspected by detection, no flow | It is real traffic with no flow identity. |
 | ICMP | A portless flow | Correct: it is tracked, with `port: None`, rather than dropped. |
 | Malformed | Counted as a decode error | One bad frame must not end the session. |
 
-## 4. Flow key
+## 4. Detection
+
+`sentinel-detect` sees every decoded frame before flow accounting. The ordering is not an
+implementation detail: ARP carries no flow key, and a detector downstream of the flow table would
+never see ARP deception. Detection keeps its own bounded, per-source state, performs no I/O and
+never inspects payload bytes. A finding is emitted on the frame that crosses a threshold and then
+updated in place, so one scan is one finding rather than one per packet.
+
+## 5. Flow key
 
 A flow is identified by a protocol plus a **canonically ordered** endpoint pair. Ordering by
 `(address, port)` makes the key independent of which side sent first, so a reply finds the
@@ -104,7 +115,7 @@ interface reports the two separately, because they are different claims:
 Showing `endpoint_b` in a column labelled "remote" would display the user's own address as the
 remote. That is why orientation is explicit rather than implied by column order.
 
-## 5. Flow table
+## 6. Flow table
 
 A hash map from key to flow, with:
 
@@ -119,7 +130,7 @@ alone is not enough.
 Sweeping is cheap enough to run on a cadence — one pass over the table every few hundred
 packets — which is why it does not need a timer thread.
 
-## 6. Aggregation
+## 7. Aggregation
 
 Traffic is bucketed into one-second windows keyed by timestamp. Out-of-order frames merge into
 their correct bucket rather than creating a new one, because capture timestamps are not
@@ -131,7 +142,7 @@ was received rather than a single undifferentiated total.
 Bucket timestamps are whole seconds. Anything needing finer resolution — a true capture span —
 is taken from the first and last frame timestamps directly, not inferred from bucket boundaries.
 
-## 7. Snapshots
+## 8. Snapshots
 
 Every 250 ms the engine publishes one `EngineSnapshot`: state, totals, the traffic series, the
 most recent connections, pipeline counters, queue accounting and the effective configuration.
@@ -144,10 +155,11 @@ Two properties matter:
   Serialising cost therefore does not grow with capture duration, which is what keeps a
   long-running session responsive.
 
-## 8. Storage
+## 9. Storage
 
 Flows and traffic samples are written every 5 seconds into a batched writer thread that owns the
-SQLite connection. The engine submits work and moves on; it never blocks on the disk.
+SQLite connection. Findings go through the same batch, one row per distinct finding rather than
+one per packet. The engine submits work and moves on; it never blocks on the disk.
 
 Two subtleties:
 
