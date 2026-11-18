@@ -32,6 +32,15 @@ use sentinel_common::packet::{ArpMessage, ArpOpcode};
 /// either.
 const CHALLENGER_WINS_REQUIRED: u8 = 3;
 
+/// How many address bindings the monitor tracks before the table is cleared.
+///
+/// A switched LAN has at most a few hundred live addresses, so this is generous for real
+/// traffic. It exists because an attacker can emit ARP claims from a million spoofed addresses
+/// precisely to turn the monitor into a memory-exhaustion bug. Clearing rather than evicting
+/// selectively keeps the state machine simple; after a clear a conflict must be re-established,
+/// which is the conservative direction to be wrong in.
+const MAX_BINDINGS: usize = 4_096;
+
 /// One address and who currently claims it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Binding {
@@ -160,31 +169,36 @@ impl ArpMonitor {
 
         // An ARP reply also asserts the target binding, so both halves are learned. This is
         // how a conflict gets noticed even when only replies are visible.
-        //
-        // The verdict from the *last* update is the meaningful one: if the target half of a
-        // reply is what conflicts, that is the conflict worth reporting, and returning the
-        // sender half's verdict would report the wrong address.
-        let last = match arp.opcode {
+        match arp.opcode {
             ArpOpcode::Reply => {
-                let mut verdict = self.update(arp.sender_ip, arp.sender_mac);
-                if !arp.target_mac.is_zero() && !arp.target_mac.is_broadcast() {
-                    verdict = self.update(arp.target_ip, arp.target_mac);
+                let sender = self.update(arp.sender_ip, arp.sender_mac);
+                if arp.target_mac.is_zero() || arp.target_mac.is_broadcast() {
+                    return sender;
                 }
-                verdict
+
+                // A report from either half must survive the other half being ordinary. An
+                // earlier version kept only the target half's verdict, so a genuine conflict on
+                // the sender silently vanished whenever the reply's target was itself benign --
+                // which is the common case, because the target is the machine that was asking.
+                //
+                // When both halves report, the target half wins: it is the later update, and
+                // it is the conflict the sender was answering about.
+                match self.update(arp.target_ip, arp.target_mac) {
+                    report @ Verdict::Report(_) => report,
+                    Verdict::NotYet { .. } => sender,
+                }
             }
             ArpOpcode::Request | ArpOpcode::Other(_) => self.update(arp.sender_ip, arp.sender_mac),
-        };
-        if matches!(last, Verdict::Report(_)) {
-            return last;
         }
-
-        last
     }
 
     /// Applies one claim and reports it if it is sustained.
     fn update(&mut self, ip: Ipv4Addr, mac: MacAddr) -> Verdict {
         match self.bindings.get_mut(&ip) {
             None => {
+                if self.bindings.len() >= MAX_BINDINGS {
+                    self.bindings.clear();
+                }
                 self.bindings.insert(
                     ip,
                     Binding {
@@ -289,6 +303,23 @@ mod tests {
             }
         );
         assert_eq!(monitor.binding_for(ip(1)), Some(mac(1)));
+    }
+
+    #[test]
+    fn the_binding_table_is_bounded() {
+        // ARP sources are trivially spoofed. An uncapped table would let a flood of claims
+        // from invented addresses exhaust memory before any conflict was reported.
+        let mut monitor = ArpMonitor::new();
+        for index in 0..(MAX_BINDINGS + 10) {
+            let address = Ipv4Addr::new(
+                10,
+                ((index >> 16) & 0xff) as u8,
+                ((index >> 8) & 0xff) as u8,
+                (index & 0xff) as u8,
+            );
+            monitor.observe(&arp(ArpOpcode::Reply, address, mac(1)));
+        }
+        assert!(monitor.tracked() <= MAX_BINDINGS);
     }
 
     #[test]
@@ -423,6 +454,32 @@ mod tests {
         assert_eq!(monitor.binding_for(ip(1)), Some(mac(1)));
         assert_eq!(monitor.binding_for(ip(2)), Some(mac(2)));
         assert_eq!(monitor.tracked(), 2);
+    }
+
+    #[test]
+    fn a_report_on_the_sender_half_survives_a_benign_target_half() {
+        // Real replies carry a target that is a machine asking a question, not the disputed
+        // address. The target half's ordinary verdict must not overwrite a conflict the sender
+        // half just confirmed, or the finding disappears whenever the target is well behaved.
+        let mut monitor = ArpMonitor::new();
+
+        let mut first = arp(ArpOpcode::Reply, ip(1), mac(1));
+        first.target_ip = ip(2);
+        first.target_mac = mac(2);
+        monitor.observe(&first);
+
+        let mut spoof = arp(ArpOpcode::Reply, ip(1), mac(3));
+        spoof.target_ip = ip(2);
+        spoof.target_mac = mac(2);
+        assert!(matches!(monitor.observe(&spoof), Verdict::NotYet { .. }));
+
+        let mut confirm = arp(ArpOpcode::Reply, ip(1), mac(1));
+        confirm.target_ip = ip(2);
+        confirm.target_mac = mac(2);
+        match monitor.observe(&confirm) {
+            Verdict::Report(conflict) => assert_eq!(conflict.ip, ip(1)),
+            other => panic!("expected a report on the disputed address, got {other:?}"),
+        }
     }
 
     #[test]

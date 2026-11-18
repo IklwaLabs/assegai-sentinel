@@ -2952,6 +2952,7 @@ dependencies = [
  "bytes",
  "sentinel-capture",
  "sentinel-common",
+ "sentinel-detect",
  "sentinel-flow",
  "sentinel-parser",
  "sentinel-platform",
@@ -2983,10 +2984,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "sentinel-detect"
+version = "0.1.0"
+dependencies = [
+ "sentinel-common",
+ "sentinel-response",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "sentinel-fixtures"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "sentinel-capture",
+ "sentinel-common",
+ "sentinel-core",
  "sentinel-parser",
  "tempfile",
 ]
@@ -3046,6 +3062,7 @@ version = "0.1.0"
 dependencies = [
  "rusqlite",
  "sentinel-common",
+ "sentinel-detect",
  "sentinel-flow",
  "serde",
  "serde_json",

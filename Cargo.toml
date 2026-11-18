@@ -8,6 +8,7 @@ members = [
     "crates/sentinel-storage",
     "crates/sentinel-capture",
     "crates/sentinel-response",
+    "crates/sentinel-detect",
     "crates/sentinel-core",
     "crates/sentinel-api",
     "apps/cli",
@@ -32,6 +33,7 @@ sentinel-common = { path = "crates/sentinel-common", version = "0.1.0" }
 sentinel-platform = { path = "crates/sentinel-platform", version = "0.1.0" }
 sentinel-capture = { path = "crates/sentinel-capture", version = "0.1.0" }
 sentinel-response = { path = "crates/sentinel-response", version = "0.1.0" }
+sentinel-detect = { path = "crates/sentinel-detect", version = "0.1.0" }
 sentinel-parser = { path = "crates/sentinel-parser", version = "0.1.0" }
 sentinel-flow = { path = "crates/sentinel-flow", version = "0.1.0" }
 sentinel-storage = { path = "crates/sentinel-storage", version = "0.1.0" }
