@@ -41,7 +41,7 @@ interface NavGroup {
 /**
  * The navigation tree.
  *
- * Only views v0.1 actually renders are listed. Devices, DNS, threats and the investigation
+ * Only views that actually render are listed. Devices, DNS, threats and the investigation
  * views arrive with their milestones, and adding them here is how they become reachable.
  */
 export const NAV_GROUPS: NavGroup[] = [
@@ -52,6 +52,12 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: 'traffic', label: 'Traffic' },
       { id: 'connections', label: 'Connections' },
     ],
+  },
+  {
+    // Named for what it shows rather than how it works: a detection is a behaviour Sentinel
+    // decided was worth reporting, which is not the same thing as an alert someone must act on.
+    label: 'Detect',
+    items: [{ id: 'alerts', label: 'Detections' }],
   },
   {
     label: 'Investigate',
@@ -66,7 +72,16 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-export function Sidebar({ current, onNavigate }: { current: ViewId; onNavigate: (view: ViewId) => void }) {
+export function Sidebar({
+  current,
+  onNavigate,
+  findingCount = 0,
+}: {
+  current: ViewId;
+  onNavigate: (view: ViewId) => void;
+  /** Live finding count, shown as a badge. Zero shows nothing rather than a "0". */
+  findingCount?: number;
+}) {
   return (
     <nav
       aria-label="Primary"
@@ -88,6 +103,7 @@ export function Sidebar({ current, onNavigate }: { current: ViewId; onNavigate: 
             <ul className="flex flex-col gap-px">
               {group.items.map((item) => {
                 const active = item.id === current;
+                const badge = item.id === 'alerts' && findingCount > 0 ? String(findingCount) : item.badge;
                 return (
                   <li key={item.id}>
                     <button
@@ -104,7 +120,7 @@ export function Sidebar({ current, onNavigate }: { current: ViewId; onNavigate: 
                         {active ? <span aria-hidden className="size-1.5 rounded-full bg-[var(--accent)]" /> : null}
                         {item.label}
                       </span>
-                      {item.badge ? <Badge tone="neutral">{item.badge}</Badge> : null}
+                      {badge ? <Badge tone={item.id === 'alerts' ? 'warning' : 'neutral'}>{badge}</Badge> : null}
                     </button>
                   </li>
                 );

@@ -91,6 +91,51 @@ export interface TrafficPoint {
   packets: number;
 }
 
+/** How much damage a finding could cause if it is real. */
+export type Severity = 'info' | 'low' | 'medium' | 'high' | 'critical';
+
+/**
+ * How sure Sentinel is that a finding is real rather than a look-alike.
+ *
+ * Deliberately separate from severity: a large upload is high severity and medium confidence,
+ * and flattening the two into one "threat score" would be dishonest about the second.
+ */
+export type Confidence = 'low' | 'medium' | 'high';
+
+/** The kinds of behaviour the engine detects, mirroring `sentinel_detect::FindingKind`. */
+export type FindingKind =
+  | 'arpSpoofing'
+  | 'portScan'
+  | 'hostSweep'
+  | 'tcpFlagAnomaly'
+  | 'cleartextProtocol'
+  | 'possibleBeaconing'
+  | 'largeOutboundTransfer';
+
+/** One fact supporting a finding. */
+export interface Evidence {
+  label: string;
+  value: string;
+}
+
+/** Something the engine decided was worth reporting, mirroring `sentinel_detect::Finding`. */
+export interface Finding {
+  /** Stable identity, so repeated observations update one row rather than flooding the list. */
+  id: string;
+  kind: FindingKind;
+  severity: Severity;
+  confidence: Confidence;
+  title: string;
+  detail: string;
+  source?: string;
+  destination?: string;
+  firstSeenUs: number;
+  lastSeenUs: number;
+  occurrences: number;
+  evidence: Evidence[];
+  advice: string[];
+}
+
 /** Ingress queue accounting. */
 export interface QueueAccounting {
   accepted: number;
@@ -209,6 +254,17 @@ export interface EngineSnapshot {
   downloadBps: number;
   traffic: TrafficPoint[];
   connections: ConnectionRow[];
+  /** Findings raised so far, most severe first. */
+  findings: Finding[];
+  /** Total findings held by the engine; may exceed `findings.length` in a long session. */
+  findingsTotal: number;
+  /**
+   * Finding observations dropped because the engine's retention cap was reached.
+   *
+   * Non-zero means `findings` is not the whole story, and the interface must say so rather than
+   * implying the list is complete.
+   */
+  findingsSuppressed: number;
   flowsActive: number;
   stats: PipelineStats;
   metrics: MetricsSnapshot;

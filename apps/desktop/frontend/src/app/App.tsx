@@ -12,6 +12,7 @@ import { Sidebar, type ViewId } from '@/components/Sidebar';
 import { Topbar } from '@/components/Topbar';
 import { Skeleton } from '@/components/ui';
 import { Connections } from '@/features/connections/Connections';
+import { Detections } from '@/features/detections/Detections';
 import { InterfacePicker } from '@/features/interfaces/InterfacePicker';
 import { Overview } from '@/features/overview/Overview';
 import { PcapAnalysis } from '@/features/pcap/PcapAnalysis';
@@ -61,7 +62,7 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <Sidebar current={view} onNavigate={setView} />
+      <Sidebar current={view} onNavigate={setView} findingCount={snapshot?.findingsTotal ?? 0} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
@@ -124,6 +125,9 @@ function ViewContent({
       return snapshot ? (
         <Connections snapshot={snapshot} paused={store.paused} onTogglePause={() => store.setPaused(!store.paused)} />
       ) : null;
+
+    case 'alerts':
+      return snapshot ? <Detections snapshot={snapshot} /> : null;
 
     case 'pcap':
       return snapshot ? (
