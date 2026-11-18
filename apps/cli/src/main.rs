@@ -65,6 +65,13 @@ enum Command {
     /// Print the current session state and counters.
     Status,
 
+    /// List stored detections, most severe first.
+    Findings {
+        /// How many detections to show.
+        #[arg(long, default_value_t = 50)]
+        limit: usize,
+    },
+
     /// Analyse a PCAP capture file and print what it contains.
     Analyze {
         /// Path to a classic PCAP file.
@@ -131,6 +138,7 @@ fn main() -> anyhow::Result<()> {
                 connections,
             } => commands::capture(&context, interface, duration, connections).await,
             Command::Status => commands::status(&context).await,
+            Command::Findings { limit } => commands::findings(&context, limit).await,
             Command::Analyze { path, all } => commands::analyze(&context, path, all).await,
             Command::Export { path, json, limit } => {
                 commands::export(&context, path, json, limit).await

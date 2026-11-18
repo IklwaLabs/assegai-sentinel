@@ -195,6 +195,7 @@ pub async fn capture(
             output::bytes(snapshot.total_download_bytes)
         );
         println!("  Connections   {}", snapshot.connections.len());
+        println!("  Detections    {}", snapshot.findings_total);
         println!("  Frames lost   {}", snapshot.stats.queue.dropped);
         if snapshot.stats.queue.dropped > 0 {
             println!("\n  Some frames were dropped because Sentinel could not keep up.");
@@ -207,10 +208,11 @@ pub async fn capture(
 fn print_summary(snapshot: &sentinel_api::types::EngineSnapshot) {
     use std::io::Write;
     print!(
-        "\r  down {:>10}   up {:>10}   connections {:>5}   packets {:>9}   ",
+        "\r  down {:>10}   up {:>10}   connections {:>5}   detections {:>4}   packets {:>9}   ",
         output::rate(snapshot.download_bps),
         output::rate(snapshot.upload_bps),
         snapshot.connections.len(),
+        snapshot.findings_total,
         snapshot.total_packets,
     );
     let _ = std::io::stdout().flush();
@@ -275,7 +277,53 @@ pub async fn status(context: &Context) -> Result<()> {
             output::bytes(snapshot.total_download_bytes)
         );
         println!("  Connections   {}", snapshot.connections.len());
+        println!("  Detections    {}", snapshot.findings_total);
         println!("  Frames lost   {}", snapshot.stats.queue.dropped);
+    })
+}
+
+/// `sentinel findings`
+///
+/// Reads stored detections directly, like `export`: the engine is not needed to answer "what
+/// has Sentinel found", and starting one would require privileges the question does not need.
+///
+/// The order is the engine's (most severe first, then most recent), so this list and the
+/// desktop view cannot disagree.
+pub async fn findings(context: &Context, limit: usize) -> Result<()> {
+    let paths = sentinel_platform::AppPaths::discover()?;
+    let database = sentinel_storage::Database::open(
+        &paths.database_file,
+        sentinel_storage::DatabaseOptions::default(),
+    )?;
+    let rows = database.recent_findings(limit)?;
+
+    context.emit(&rows, || {
+        if rows.is_empty() {
+            println!("No detections stored.\n");
+            println!("Sentinel reports a behaviour only after it crosses a threshold, so an empty");
+            println!("list means nothing crossed one. It is not a clean bill of health.");
+            return;
+        }
+
+        let mut table = Table::new(
+            &["SEVERITY", "FINDING", "CONFIDENCE", "TIMES", "LAST SEEN"],
+            3,
+        );
+        for finding in &rows {
+            table.push(vec![
+                finding.severity.label().to_uppercase(),
+                finding.title.clone(),
+                finding.confidence.label().to_string(),
+                finding.occurrences.to_string(),
+                output::timestamp(finding.last_seen_us),
+            ]);
+        }
+        table.print();
+
+        println!("\n{} detections (most severe first)", rows.len());
+        if rows.len() == limit {
+            println!("Limited to {limit}; raise --limit to see more.");
+        }
     })
 }
 
@@ -341,6 +389,7 @@ fn print_analysis(context: &Context, snapshot: &sentinel_api::types::EngineSnaps
         output::bytes(snapshot.total_download_bytes)
     );
     println!("  Connections   {}", snapshot.connections.len());
+    println!("  Detections    {}", snapshot.findings_total);
 
     // The span comes from the engine's own frame timestamps rather than from bucket
     // boundaries, which are quantised to whole seconds.
@@ -349,6 +398,42 @@ fn print_analysis(context: &Context, snapshot: &sentinel_api::types::EngineSnaps
         "  Time span     {}",
         output::duration_seconds_micros(span_us)
     );
+
+    // Detections are printed before the early return below, because a capture can contain ARP
+    // deception and no IP connection at all, and that is the finding that matters most.
+    if !snapshot.findings.is_empty() {
+        println!("\nDetections\n");
+        let mut table = Table::new(&["SEVERITY", "FINDING", "CONFIDENCE", "TIMES"], 3);
+        for finding in &snapshot.findings {
+            table.push(vec![
+                finding.severity.label().to_uppercase(),
+                finding.title.clone(),
+                finding.confidence.label().to_string(),
+                finding.occurrences.to_string(),
+            ]);
+        }
+        table.print();
+
+        let shown = snapshot.findings.len() as u64;
+        if snapshot.findings_total > shown {
+            output::note(
+                true,
+                format!(
+                    "\n  {shown} of {} detections shown; run 'sentinel findings' for the stored list.",
+                    snapshot.findings_total
+                ),
+            );
+        }
+        if snapshot.findings_suppressed > 0 {
+            output::note(
+                context.quiet,
+                format!(
+                    "\n  {} further detections were suppressed at the in-memory cap, so this is not the whole picture.",
+                    snapshot.findings_suppressed
+                ),
+            );
+        }
+    }
 
     if snapshot.connections.is_empty() {
         println!("\nNo IP connections were found in this capture.");
