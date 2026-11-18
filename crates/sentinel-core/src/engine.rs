@@ -3,7 +3,7 @@
 //! ```text
 //! callers --EngineRequest--> engine task <--drain tick-- ingress queue
 //!                                   |
-//!                                   +-- pipeline (decode, flows, aggregation)
+//!                                   +-- pipeline (decode, detect, flows, aggregation)
 //!                                   +-- storage writer (batched)
 //!                                   +-- event broadcaster (throttled snapshots)
 //! ```
@@ -26,6 +26,7 @@ use sentinel_common::config::AppConfig;
 use sentinel_common::metrics::EngineMetrics;
 use sentinel_common::net::NetworkInterface;
 use sentinel_common::throttle::Throttle;
+use sentinel_detect::Finding;
 use sentinel_flow::aggregate::TrafficSummary;
 
 use sentinel_storage::{
@@ -33,7 +34,7 @@ use sentinel_storage::{
 };
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::error::{CoreError, Result};
 use crate::event::{ConnectionRow, EngineEvent, EngineSnapshot, EventBroadcaster, TrafficPoint};
@@ -99,6 +100,8 @@ pub struct EngineOptions {
     pub config: AppConfig,
     /// Number of connections to include in a snapshot.
     pub snapshot_connections: usize,
+    /// Number of findings to include in a snapshot, most severe first.
+    pub snapshot_findings: usize,
     /// Queue capacity between capture and the engine.
     pub queue_capacity: usize,
 }
@@ -108,6 +111,7 @@ impl Default for EngineOptions {
         Self {
             config: AppConfig::default(),
             snapshot_connections: 200,
+            snapshot_findings: 100,
             queue_capacity: 32_768,
         }
     }
@@ -235,6 +239,11 @@ struct EngineTask {
     flushed_protocols: Option<Vec<(sentinel_common::packet::TransportProtocol, u64)>>,
     started_us: Option<u64>,
     last_flush_us: u64,
+    /// Findings raised since the last flush, waiting to be written to storage.
+    ///
+    /// The detection engine deduplicates by identity, so this is bounded by its retention cap
+    /// rather than by traffic volume.
+    pending_findings: Vec<Finding>,
     /// A read failure from the offline source, applied after the current chunk is processed.
     offline_error: Option<String>,
 }
@@ -262,6 +271,7 @@ impl EngineTask {
             flushed_protocols: None,
             started_us: None,
             last_flush_us: now,
+            pending_findings: Vec::new(),
             offline_error: None,
             options,
             storage,
@@ -563,7 +573,21 @@ impl EngineTask {
     /// Processes one frame through the pipeline.
     fn process(&mut self, raw: &sentinel_capture::RawPacket) {
         self.metrics.record_captured(u64::from(raw.original_len));
-        let _ = self.pipeline.process(raw, Some(&self.metrics));
+        let outcome = self.pipeline.process(raw, Some(&self.metrics));
+
+        // A finding is raised once, when a threshold is crossed, so this logs one line per
+        // finding rather than one per packet. It also means the CLI and a daemon deployment see
+        // the same detections the interface does, without polling the snapshot.
+        for finding in outcome.findings {
+            warn!(
+                kind = finding.kind.as_str(),
+                severity = finding.severity.as_str(),
+                confidence = finding.confidence.as_str(),
+                title = %finding.title,
+                "finding raised"
+            );
+            self.pending_findings.push(finding);
+        }
     }
 
     /// Ends the session when its source has no more frames.
@@ -621,6 +645,7 @@ impl EngineTask {
         batch.push(WriteItem::Retention {
             flows_cutoff_us: self.retention.flows_cutoff(),
             samples_cutoff_us: self.retention.samples_cutoff(),
+            findings_cutoff_us: self.retention.findings_cutoff(),
         });
         if !self.storage.submit(batch) {
             debug!("storage queue full; the retention sweep was dropped and counted");
@@ -662,6 +687,13 @@ impl EngineTask {
         let summary = self.pipeline.traffic_summary();
         if let Some(delta) = self.protocol_delta(&summary) {
             batch.push(WriteItem::ProtocolTotal(delta));
+        }
+
+        // Findings are already deduplicated by identity, so this writes a handful of rows per
+        // session rather than a row per packet. Draining rather than cloning means a finding is
+        // offered to storage exactly once.
+        for finding in self.pending_findings.drain(..) {
+            batch.push(WriteItem::Finding(Box::new(finding)));
         }
 
         if !batch.is_empty() {
@@ -737,6 +769,7 @@ impl EngineTask {
         self.pipeline.reset();
         self.last_written_bucket = None;
         self.flushed_protocols = None;
+        self.pending_findings.clear();
         self.offline_error = None;
         self.started_us = Some(clock::now_unix_micros());
     }
@@ -837,6 +870,11 @@ impl EngineTask {
                 .map(TrafficPoint::from)
                 .collect(),
             connections,
+            findings: self
+                .pipeline
+                .findings_for_display(self.options.snapshot_findings),
+            findings_total: self.pipeline.finding_count() as u64,
+            findings_suppressed: self.pipeline.findings_suppressed(),
             flows_active: self.pipeline.flow_count() as u64,
             stats: PipelineStats {
                 counters: self.pipeline.counters(),

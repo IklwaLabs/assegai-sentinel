@@ -1,7 +1,7 @@
 //! The normalized packet pipeline.
 //!
 //! ```text
-//! RawPacket -> validate -> decode -> flow key -> flow update -> aggregate
+//! RawPacket -> validate -> decode -> detect -> flow key -> flow update -> aggregate
 //! ```
 //!
 //! Every stage is a plain function of its input. The pipeline holds no state beyond the tables
@@ -15,6 +15,9 @@
 //!    bad frame would make the tool useless exactly when it is needed.
 //! 2. **Payload bytes are not retained.** Only lengths and metadata survive a packet's
 //!    lifetime, which is what keeps memory flat under load and honours the privacy defaults.
+//!
+//! Detection runs before flow tracking on purpose: ARP has no flow identity, and ARP deception
+//! is the one finding whose cost is measured in intercepted traffic rather than noise.
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -22,6 +25,7 @@ use std::sync::Arc;
 use sentinel_capture::RawPacket;
 use sentinel_common::metrics::EngineMetrics;
 use sentinel_common::packet::NormalizedPacket;
+use sentinel_detect::{DetectionEngine, Finding};
 use sentinel_flow::aggregate::TrafficAggregator;
 use sentinel_flow::flow::{Flow, FlowState, FlowUpdate};
 use sentinel_flow::key::{FlowKey, FlowSide};
@@ -103,6 +107,12 @@ pub struct PipelineOutcome {
     pub flow_key: Option<FlowKey>,
     /// Whether the flow was newly created.
     pub flow_created: bool,
+    /// Findings first raised by this frame.
+    ///
+    /// Empty for almost every frame. Updates to findings that already exist are applied in
+    /// place inside the detection engine and are not reported again, which is what keeps a
+    /// long scan from producing a finding per packet.
+    pub findings: Vec<Finding>,
 }
 
 impl PipelineOutcome {
@@ -113,9 +123,10 @@ impl PipelineOutcome {
     }
 }
 
-/// The decoding and flow-tracking stages.
+/// The decoding, detection and flow-tracking stages.
 pub struct Pipeline {
     decoder: PacketDecoder,
+    detection: DetectionEngine,
     flows: FlowTable,
     aggregator: TrafficAggregator,
     counters: PipelineCounters,
@@ -128,6 +139,7 @@ impl Pipeline {
     pub fn new(config: PipelineConfig) -> Self {
         Self {
             decoder: PacketDecoder::new(),
+            detection: DetectionEngine::new(),
             flows: FlowTable::new(config.flow_table),
             aggregator: TrafficAggregator::new(config.bucket_count, config.bucket_us),
             counters: PipelineCounters::default(),
@@ -174,6 +186,7 @@ impl Pipeline {
                     packet: None,
                     flow_key: None,
                     flow_created: false,
+                    findings: Vec::new(),
                 };
             }
         };
@@ -181,6 +194,10 @@ impl Pipeline {
         if let Some(metrics) = metrics {
             metrics.record_decoded();
         }
+
+        // Stage 2: detection. Runs on every decoded frame, including the ones that have no flow
+        // identity: ARP is the whole reason this stage is here rather than inside flow tracking.
+        let findings = self.detection.observe(&packet);
 
         // A non-initial IPv4 fragment has an IP header but no transport header, so its ports
         // are unknown. Keying it would create a second, portless flow for a connection that
@@ -192,10 +209,11 @@ impl Pipeline {
                 packet: Some(packet),
                 flow_key: None,
                 flow_created: false,
+                findings,
             };
         }
 
-        // Stage 2: flow lookup and update. ARP and other non-IP frames have no flow identity.
+        // Stage 3: flow lookup and update. ARP and other non-IP frames have no flow identity.
         let (key, update) = self.flows.apply(&packet, metrics);
         if update == FlowUpdate::Ignored {
             self.counters.packets_without_flow += 1;
@@ -203,6 +221,7 @@ impl Pipeline {
                 packet: Some(packet),
                 flow_key: None,
                 flow_created: false,
+                findings,
             };
         }
 
@@ -211,7 +230,7 @@ impl Pipeline {
             self.aggregator.record_flow(packet.transport_protocol());
         }
 
-        // Stage 3: aggregation. Direction is decided against the initiator, so upload and
+        // Stage 4: aggregation. Direction is decided against the initiator, so upload and
         // download totals match what the user sees in the interface's own statistics.
         let upload = self
             .flows
@@ -225,7 +244,7 @@ impl Pipeline {
         self.aggregator
             .record_protocol(packet.transport_protocol(), packet.wire_len(), 1);
 
-        // Stage 4: periodic maintenance. Sweeping here rather than on a timer keeps the whole
+        // Stage 5: periodic maintenance. Sweeping here rather than on a timer keeps the whole
         // pipeline in one place and guarantees it happens at a predictable traffic volume.
         if self.flows.should_sweep() {
             let result = self.flows.sweep(packet.timestamp_us, metrics);
@@ -243,6 +262,7 @@ impl Pipeline {
             packet: Some(packet),
             flow_key: Some(key),
             flow_created: update.is_created(),
+            findings,
         }
     }
 
@@ -287,6 +307,36 @@ impl Pipeline {
     #[must_use]
     pub fn flow_count(&self) -> usize {
         self.flows.len()
+    }
+
+    /// Every finding raised in this session, in the order first seen.
+    #[must_use]
+    pub fn findings(&self) -> &[Finding] {
+        self.detection.findings()
+    }
+
+    /// Findings ordered for display, limited to `limit`.
+    ///
+    /// The ordering is the detection crate's, so the CLI, the desktop app and an export cannot
+    /// disagree about which finding is at the top of the list.
+    #[must_use]
+    pub fn findings_for_display(&self, limit: usize) -> Vec<Finding> {
+        self.detection.findings_for_display(limit)
+    }
+
+    /// Number of distinct findings held.
+    #[must_use]
+    pub fn finding_count(&self) -> usize {
+        self.detection.finding_count()
+    }
+
+    /// Finding observations dropped because the retention cap was reached.
+    ///
+    /// Surfaced rather than hidden: a list that has silently dropped entries must not be
+    /// presented as complete.
+    #[must_use]
+    pub fn findings_suppressed(&self) -> u64 {
+        self.detection.suppressed()
     }
 
     /// Traffic samples for charting.
@@ -339,6 +389,7 @@ impl Pipeline {
     pub fn reset(&mut self) {
         self.flows = FlowTable::new(self.config.flow_table);
         self.aggregator.reset();
+        self.detection.reset();
         self.counters = PipelineCounters::default();
     }
 

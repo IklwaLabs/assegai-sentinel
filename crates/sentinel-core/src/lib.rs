@@ -3,7 +3,7 @@
 //! This crate is where the pipeline in `ARCHITECTURE.md` becomes running code:
 //!
 //! ```text
-//! CaptureSource -> bounded queue -> decoder -> flow table -> aggregator -> storage -> events
+//! CaptureSource -> bounded queue -> decoder -> detection -> flow table -> aggregator -> storage -> events
 //! ```
 //!
 //! # Concurrency
@@ -19,9 +19,11 @@
 //!
 //! # Boundaries
 //!
-//! The engine performs no analysis of its own. Detection, threat intelligence and risk scoring
-//! are separate crates added by later milestones and plugged in as a stage after the flow
-//! update. Keeping that seam visible now is what stops the engine from becoming a god object.
+//! The engine orchestrates; it does not invent a verdict. Detection is a separate crate
+//! (`sentinel-detect`) invoked as a stage over decoded packets, and its findings are carried
+//! through the same bounded pipeline as flows. Response — the part that may touch the network —
+//! lives in `sentinel-response` and is never called from the packet path. Keeping those seams
+//! visible is what stops the engine from becoming a god object.
 
 pub mod engine;
 pub mod error;

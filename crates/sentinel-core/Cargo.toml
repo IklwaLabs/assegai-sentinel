@@ -12,6 +12,7 @@ description = "Engine orchestration for Iklwa Sentinel: the packet pipeline, eng
 sentinel-common.workspace = true
 sentinel-capture.workspace = true
 sentinel-flow.workspace = true
+sentinel-detect.workspace = true
 sentinel-parser.workspace = true
 sentinel-platform.workspace = true
 sentinel-storage.workspace = true

@@ -428,13 +428,136 @@ fn the_flow_table_evicts_idle_flows() {
 /// Resetting the pipeline clears state but keeps the configuration.
 #[test]
 fn reset_clears_state_and_counters() {
-    let frames = vec![(1_000_000, fixtures::tcp_frame(52_341, 443, 0x02, &[]))];
+    let frames = vec![
+        (1_000_000, fixtures::tcp_frame(52_341, 443, 0x02, &[])),
+        // Telnet, so there is a finding to clear as well as a flow.
+        (1_000_100, fixtures::tcp_frame(52_342, 23, 0x02, &[])),
+    ];
     let (mut pipeline, _) = analyze(&frames);
-    assert_eq!(pipeline.flow_count(), 1);
+    assert_eq!(pipeline.flow_count(), 2);
+    assert_eq!(pipeline.finding_count(), 1);
 
     pipeline.reset();
 
     assert_eq!(pipeline.flow_count(), 0);
     assert_eq!(pipeline.counters().packets_seen, 0);
+    assert_eq!(
+        pipeline.finding_count(),
+        0,
+        "a new session must not inherit the last session's findings"
+    );
     assert!(pipeline.traffic_samples().is_empty());
+}
+
+/// Detection runs on the same code path as flow tracking: a scan in a capture file is found.
+#[test]
+fn a_port_scan_in_a_capture_becomes_one_finding() {
+    let mut frames = Vec::new();
+    for offset in 0..20u16 {
+        frames.push((
+            1_000_000 + u64::from(offset) * 1_000,
+            // High destination ports, so this is only a scan and not also a cleartext
+            // protocol finding. One behaviour, one finding.
+            fixtures::tcp_frame(52_341, 5_000 + offset, 0x02, &[]),
+        ));
+    }
+
+    let (pipeline, _) = analyze(&frames);
+
+    assert_eq!(pipeline.finding_count(), 1, "one scan is one finding");
+    let finding = &pipeline.findings()[0];
+    assert_eq!(finding.kind, sentinel_detect::FindingKind::PortScan);
+    assert_eq!(finding.source, Some("192.168.1.10".parse().expect("valid")));
+    assert_eq!(
+        finding.destination,
+        Some("93.184.216.34".parse().expect("valid"))
+    );
+    assert_eq!(
+        finding.severity,
+        sentinel_detect::Severity::Medium,
+        "an internal source may be an administrator's own tool"
+    );
+    assert_eq!(finding.confidence, sentinel_detect::Confidence::High);
+}
+
+/// A protocol that carries a session in the clear is reported from a capture file.
+#[test]
+fn a_telnet_connection_is_reported_as_cleartext() {
+    let frames = vec![(1_000_000, fixtures::tcp_frame(52_341, 23, 0x02, &[]))];
+    let (pipeline, _) = analyze(&frames);
+
+    assert_eq!(pipeline.finding_count(), 1);
+    let finding = &pipeline.findings()[0];
+    assert_eq!(
+        finding.kind,
+        sentinel_detect::FindingKind::CleartextProtocol
+    );
+    assert_eq!(
+        finding.severity,
+        sentinel_detect::Severity::High,
+        "a Telnet session exposes the password and everything typed after it"
+    );
+    assert_eq!(pipeline.flow_count(), 1, "the flow is still tracked");
+}
+
+/// ARP deception is detected even though ARP has no flow identity.
+///
+/// This is the reason detection runs before flow tracking: a detector wired into the flow path
+/// would never see the one protocol whose finding is the most serious.
+#[test]
+fn two_devices_claiming_one_address_is_reported_as_arp_spoofing() {
+    let gateway = [192, 168, 1, 1];
+    let attacker = [0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb];
+    let frames = vec![
+        (
+            1_000_000,
+            fixtures::arp_reply_frame_with_identity(gateway, fixtures::SRC_MAC),
+        ),
+        (
+            1_000_100,
+            fixtures::arp_reply_frame_with_identity(gateway, attacker),
+        ),
+        // The incumbent answering afterwards is what distinguishes a spoof from a re-address.
+        (
+            1_000_200,
+            fixtures::arp_reply_frame_with_identity(gateway, fixtures::SRC_MAC),
+        ),
+    ];
+
+    let (pipeline, counters) = analyze(&frames);
+
+    assert_eq!(counters.packets_without_flow, 3, "ARP has no flow key");
+    assert_eq!(pipeline.flow_count(), 0);
+    assert_eq!(pipeline.finding_count(), 1);
+    let finding = &pipeline.findings()[0];
+    assert_eq!(finding.kind, sentinel_detect::FindingKind::ArpSpoofing);
+    assert_eq!(finding.severity, sentinel_detect::Severity::Critical);
+    assert_eq!(
+        finding.destination,
+        Some("192.168.1.1".parse().expect("valid"))
+    );
+}
+
+/// One ARP address change is a re-address, not an attack, and must not raise a finding.
+#[test]
+fn a_single_arp_address_change_is_not_reported() {
+    let gateway = [192, 168, 1, 1];
+    let newcomer = [0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb];
+    let frames = vec![
+        (
+            1_000_000,
+            fixtures::arp_reply_frame_with_identity(gateway, fixtures::SRC_MAC),
+        ),
+        (
+            1_000_100,
+            fixtures::arp_reply_frame_with_identity(gateway, newcomer),
+        ),
+    ];
+
+    let (pipeline, _) = analyze(&frames);
+    assert_eq!(
+        pipeline.finding_count(),
+        0,
+        "a DHCP hand-off looks identical to the first half of a spoof"
+    );
 }

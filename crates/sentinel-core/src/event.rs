@@ -17,6 +17,7 @@ use sentinel_common::config::AppConfig;
 use sentinel_common::error::UserMessage;
 use sentinel_common::metrics::MetricsSnapshot;
 use sentinel_common::net::NetworkInterface;
+use sentinel_detect::Finding;
 use serde::{Deserialize, Serialize};
 
 use crate::pipeline::{PipelineStats, QueueAccounting};
@@ -238,6 +239,21 @@ pub struct EngineSnapshot {
     pub traffic: Vec<TrafficPoint>,
     /// Most recent connections, newest first.
     pub connections: Vec<ConnectionRow>,
+    /// Findings raised so far, most severe first.
+    ///
+    /// Ordered by the detection crate so every frontend shows the same list. The full list is
+    /// held by the engine; this is the bounded slice a view needs.
+    pub findings: Vec<Finding>,
+    /// Total findings held by the engine.
+    ///
+    /// Can exceed `findings.len()` when a session has raised more than the snapshot includes,
+    /// which is why a count must come from here rather than from the slice's length.
+    pub findings_total: u64,
+    /// Finding observations dropped because the engine's retention cap was reached.
+    ///
+    /// Non-zero means `findings` is not the whole story, and an interface must say so rather
+    /// than implying the list is complete.
+    pub findings_suppressed: u64,
     /// Number of tracked flows.
     pub flows_active: u64,
     /// Pipeline and queue counters.
@@ -530,6 +546,9 @@ mod tests {
             download_bps: 0.0,
             traffic: Vec::new(),
             connections: Vec::new(),
+            findings: Vec::new(),
+            findings_total: 0,
+            findings_suppressed: 0,
             flows_active: 0,
             stats: PipelineStats::default(),
             metrics: MetricsSnapshot::default(),
