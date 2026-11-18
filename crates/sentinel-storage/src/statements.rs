@@ -11,10 +11,13 @@
 use rusqlite::{Connection, params};
 
 use sentinel_common::clock;
+use sentinel_detect::Severity;
 use sentinel_flow::aggregate::TrafficSample;
 
 use crate::error::Result;
-use crate::schema::{FlowRecord, InterfaceRecord, ProtocolTotalRecord, to_sql_timestamp};
+use crate::schema::{
+    FindingRecord, FlowRecord, InterfaceRecord, ProtocolTotalRecord, to_sql_timestamp,
+};
 
 /// Converts an unsigned counter to SQLite's signed INTEGER, saturating on overflow.
 fn to_i64(value: u64) -> i64 {
@@ -161,6 +164,67 @@ pub fn upsert_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+/// Inserts or updates a finding.
+///
+/// `first_seen_us` is left alone on conflict: it is when the behaviour was first observed, and a
+/// later session observing the same behaviour must not move it forward. Severity and confidence
+/// are each kept at the worse of the two values, matching the engine's escalate-never-de-escalate
+/// rule, so a later quieter observation cannot bury an earlier serious one on disk.
+///
+/// The confidence CASE enumerates the three stored labels rather than comparing them, because
+/// SQL would sort them alphabetically — high, low, medium — which is not the order of certainty.
+pub fn upsert_finding(conn: &Connection, record: &FindingRecord) -> Result<()> {
+    let severity_rank = Severity::parse(&record.severity).map_or(0, |severity| severity.rank());
+    conn.execute(
+        "INSERT INTO findings (
+             id, kind, severity, severity_rank, confidence, title, detail,
+             source, destination, first_seen_us, last_seen_us, occurrences,
+             evidence_json, advice_json, updated_at_us
+         ) VALUES (
+             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
+         )
+         ON CONFLICT(id) DO UPDATE SET
+             severity = CASE
+                 WHEN excluded.severity_rank >= findings.severity_rank
+                 THEN excluded.severity
+                 ELSE findings.severity
+             END,
+             severity_rank = MAX(findings.severity_rank, excluded.severity_rank),
+             confidence = CASE
+                 WHEN excluded.confidence = 'high' OR findings.confidence = 'high' THEN 'high'
+                 WHEN excluded.confidence = 'medium' OR findings.confidence = 'medium' THEN 'medium'
+                 ELSE 'low'
+             END,
+             title = excluded.title,
+             detail = excluded.detail,
+             source = excluded.source,
+             destination = excluded.destination,
+             last_seen_us = excluded.last_seen_us,
+             occurrences = MAX(findings.occurrences, excluded.occurrences),
+             evidence_json = excluded.evidence_json,
+             advice_json = excluded.advice_json,
+             updated_at_us = excluded.updated_at_us",
+        params![
+            record.id,
+            record.kind,
+            record.severity,
+            severity_rank,
+            record.confidence,
+            record.title,
+            record.detail,
+            record.source,
+            record.destination,
+            to_sql_timestamp(record.first_seen_us),
+            to_sql_timestamp(record.last_seen_us),
+            to_i64(record.occurrences),
+            serde_json::to_string(&record.evidence).unwrap_or_else(|_| "[]".to_string()),
+            serde_json::to_string(&record.advice).unwrap_or_else(|_| "[]".to_string()),
+            to_sql_timestamp(clock::now_unix_micros()),
+        ],
+    )?;
+    Ok(())
+}
+
 /// Deletes flow rows last seen before `cutoff_us`.
 ///
 /// Exposed as a statement so the retention path inside the writer thread uses the same SQL as
@@ -168,6 +232,15 @@ pub fn upsert_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
 pub fn delete_flows_before(conn: &Connection, cutoff_us: u64) -> Result<u64> {
     let removed = conn.execute(
         "DELETE FROM flows WHERE last_seen_us < ?1",
+        [to_sql_timestamp(cutoff_us)],
+    )?;
+    Ok(u64::try_from(removed).unwrap_or(0))
+}
+
+/// Deletes findings last seen before `cutoff_us`.
+pub fn delete_findings_before(conn: &Connection, cutoff_us: u64) -> Result<u64> {
+    let removed = conn.execute(
+        "DELETE FROM findings WHERE last_seen_us < ?1",
         [to_sql_timestamp(cutoff_us)],
     )?;
     Ok(u64::try_from(removed).unwrap_or(0))

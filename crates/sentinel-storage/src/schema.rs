@@ -6,6 +6,7 @@
 
 use sentinel_common::clock;
 use sentinel_common::net::NetworkInterface;
+use sentinel_detect::{Confidence, Evidence, Finding, FindingKind, Severity};
 use sentinel_flow::aggregate::ProtocolTotals;
 use sentinel_flow::flow::Flow;
 use sentinel_flow::key::Endpoint;
@@ -148,6 +149,99 @@ pub struct SettingRecord {
     pub value: String,
     /// Update timestamp.
     pub updated_at_us: u64,
+}
+
+/// A stored finding.
+///
+/// Enumerations are kept as their stable string identifiers rather than as integers: a stored
+/// row must remain readable by a later build even if a variant is inserted in the middle of the
+/// enum, and an identifier that cannot be parsed is reported rather than defaulted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FindingRecord {
+    /// Stable identity of the finding.
+    pub id: String,
+    /// Finding kind identifier.
+    pub kind: String,
+    /// Severity identifier.
+    pub severity: String,
+    /// Confidence identifier.
+    pub confidence: String,
+    /// One-line title.
+    pub title: String,
+    /// Plain-language detail.
+    pub detail: String,
+    /// Address that caused the behaviour.
+    pub source: Option<String>,
+    /// Address affected.
+    pub destination: Option<String>,
+    /// First observation timestamp.
+    pub first_seen_us: u64,
+    /// Most recent observation timestamp.
+    pub last_seen_us: u64,
+    /// Observations folded into this finding.
+    pub occurrences: u64,
+    /// Evidence as stored.
+    pub evidence: Vec<Evidence>,
+    /// Advice as stored.
+    pub advice: Vec<String>,
+}
+
+impl FindingRecord {
+    /// Builds a record from a finding.
+    #[must_use]
+    pub fn new(finding: &Finding) -> Self {
+        Self {
+            id: finding.id.clone(),
+            kind: finding.kind.as_str().to_string(),
+            severity: finding.severity.as_str().to_string(),
+            confidence: finding.confidence.as_str().to_string(),
+            title: finding.title.clone(),
+            detail: finding.detail.clone(),
+            source: finding.source.map(|address| address.to_string()),
+            destination: finding.destination.map(|address| address.to_string()),
+            first_seen_us: finding.first_seen_us,
+            last_seen_us: finding.last_seen_us,
+            occurrences: finding.occurrences,
+            evidence: finding.evidence.clone(),
+            advice: finding.advice.clone(),
+        }
+    }
+
+    /// Rebuilds the finding, or `None` when a stored identifier cannot be understood.
+    ///
+    /// Returning `None` rather than substituting a default is deliberate: a finding whose
+    /// severity has become unreadable must not reappear as "info" and be dismissed.
+    #[must_use]
+    pub fn to_finding(&self) -> Option<Finding> {
+        let kind = FindingKind::parse(&self.kind)?;
+        let severity = Severity::parse(&self.severity)?;
+        let confidence = Confidence::parse(&self.confidence)?;
+
+        let source = match &self.source {
+            Some(text) => Some(text.parse().ok()?),
+            None => None,
+        };
+        let destination = match &self.destination {
+            Some(text) => Some(text.parse().ok()?),
+            None => None,
+        };
+
+        Some(Finding {
+            id: self.id.clone(),
+            kind,
+            severity,
+            confidence,
+            title: self.title.clone(),
+            detail: self.detail.clone(),
+            source,
+            destination,
+            first_seen_us: self.first_seen_us,
+            last_seen_us: self.last_seen_us,
+            occurrences: self.occurrences,
+            evidence: self.evidence.clone(),
+            advice: self.advice.clone(),
+        })
+    }
 }
 
 /// Converts a `u64` microsecond timestamp into an `i64` for SQLite.

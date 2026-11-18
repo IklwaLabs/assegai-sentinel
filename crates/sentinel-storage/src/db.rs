@@ -4,13 +4,15 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
 use sentinel_common::clock;
+use sentinel_detect::{Evidence, Finding};
 use sentinel_flow::aggregate::TrafficSample;
 use sentinel_flow::flow::Flow;
 
 use crate::error::{Result, StorageError};
 use crate::migrations;
 use crate::schema::{
-    FlowRecord, InterfaceRecord, ProtocolTotalRecord, from_sql_timestamp, to_sql_timestamp,
+    FindingRecord, FlowRecord, InterfaceRecord, ProtocolTotalRecord, from_sql_timestamp,
+    to_sql_timestamp,
 };
 use crate::statements;
 
@@ -43,11 +45,12 @@ impl Default for DatabaseOptions {
 /// The name cannot be a bound parameter, so it is checked against this list rather than
 /// interpolated. Sentinel's own callers pass literals, but the allowlist makes that safe by
 /// construction instead of by review.
-const COUNTABLE_TABLES: [&str; 5] = [
+const COUNTABLE_TABLES: [&str; 6] = [
     "flows",
     "interfaces",
     "traffic_samples",
     "protocol_totals",
+    "findings",
     "settings",
 ];
 
@@ -190,6 +193,39 @@ impl Database {
         Ok(records)
     }
 
+    /// Inserts or updates a finding.
+    ///
+    /// # Errors
+    /// Propagates SQLite failures.
+    pub fn upsert_finding(&self, record: &FindingRecord) -> Result<()> {
+        statements::upsert_finding(&self.conn, record)
+    }
+
+    /// Reads findings most severe first, then most recent first.
+    ///
+    /// The ordering lives in SQL because the CLI and the desktop app both show this list, and
+    /// two independent sorts would eventually disagree about which finding is at the top.
+    ///
+    /// # Errors
+    /// Propagates SQLite failures, and returns [`StorageError::Corrupt`] for a row whose stored
+    /// identifiers cannot be understood.
+    pub fn recent_findings(&self, limit: usize) -> Result<Vec<Finding>> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, kind, severity, confidence, title, detail, source, destination,
+                    first_seen_us, last_seen_us, occurrences, evidence_json, advice_json
+             FROM findings
+             ORDER BY severity_rank DESC, last_seen_us DESC
+             LIMIT ?1",
+        )?;
+
+        let rows = statement.query_map([limit as i64], row_to_finding_record)?;
+        let mut findings = Vec::new();
+        for row in rows {
+            findings.push(decode_finding_row(row?)?);
+        }
+        Ok(findings)
+    }
+
     /// Inserts or adds to a traffic sample bucket.
     ///
     /// # Errors
@@ -321,6 +357,14 @@ impl Database {
         statements::delete_samples_before(&self.conn, cutoff_us)
     }
 
+    /// Deletes findings last seen before `cutoff_us`.
+    ///
+    /// # Errors
+    /// Propagates SQLite failures.
+    pub fn delete_findings_before(&mut self, cutoff_us: u64) -> Result<u64> {
+        statements::delete_findings_before(&self.conn, cutoff_us)
+    }
+
     /// Reports a database file's size in bytes.
     ///
     /// # Errors
@@ -449,6 +493,96 @@ fn decode_flow_row(row: FlowRow) -> Result<FlowRecord> {
     })
 }
 
+/// One `findings` row, as read back from SQLite.
+#[allow(
+    clippy::type_complexity,
+    reason = "documented alias for a fixed 13-column row"
+)]
+type FindingRow = (
+    String,         // id
+    String,         // kind
+    String,         // severity
+    String,         // confidence
+    String,         // title
+    String,         // detail
+    Option<String>, // source
+    Option<String>, // destination
+    i64,            // first_seen_us
+    i64,            // last_seen_us
+    i64,            // occurrences
+    String,         // evidence_json
+    String,         // advice_json
+);
+
+fn row_to_finding_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<FindingRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+        row.get(10)?,
+        row.get(11)?,
+        row.get(12)?,
+    ))
+}
+
+/// Converts a `findings` row tuple into a finding.
+///
+/// An unreadable row is an error rather than a skipped row: a finding the build cannot
+/// understand is exactly the one a user must not be told does not exist.
+fn decode_finding_row(row: FindingRow) -> Result<Finding> {
+    let (
+        id,
+        kind,
+        severity,
+        confidence,
+        title,
+        detail,
+        source,
+        destination,
+        first_seen_us,
+        last_seen_us,
+        occurrences,
+        evidence_json,
+        advice_json,
+    ) = row;
+
+    let evidence: Vec<Evidence> = serde_json::from_str(&evidence_json).map_err(|err| {
+        StorageError::Corrupt(format!("unreadable evidence in finding '{id}': {err}"))
+    })?;
+    let advice: Vec<String> = serde_json::from_str(&advice_json).map_err(|err| {
+        StorageError::Corrupt(format!("unreadable advice in finding '{id}': {err}"))
+    })?;
+
+    let record = FindingRecord {
+        id: id.clone(),
+        kind,
+        severity,
+        confidence,
+        title,
+        detail,
+        source,
+        destination,
+        first_seen_us: from_sql_timestamp(first_seen_us),
+        last_seen_us: from_sql_timestamp(last_seen_us),
+        occurrences: u64::try_from(occurrences).unwrap_or(0),
+        evidence,
+        advice,
+    };
+
+    record.to_finding().ok_or_else(|| {
+        StorageError::Corrupt(format!(
+            "finding '{id}' has identifiers this build does not understand"
+        ))
+    })
+}
+
 /// Rebuilds a flow key from stored columns.
 fn decode_key(
     protocol: &str,
@@ -540,6 +674,24 @@ mod tests {
 
     fn database() -> Database {
         Database::open_in_memory(DatabaseOptions::default()).expect("in-memory database")
+    }
+
+    fn finding(id: &str, severity: sentinel_detect::Severity, last_seen_us: u64) -> Finding {
+        Finding {
+            id: id.to_string(),
+            kind: sentinel_detect::FindingKind::PortScan,
+            severity,
+            confidence: sentinel_detect::Confidence::High,
+            title: "Port scan".to_string(),
+            detail: "detail".to_string(),
+            source: Some("10.0.0.5".parse().expect("valid")),
+            destination: Some("10.0.0.9".parse().expect("valid")),
+            first_seen_us: 1_000,
+            last_seen_us,
+            occurrences: 3,
+            evidence: vec![sentinel_detect::Evidence::new("Distinct ports", "24")],
+            advice: vec!["Investigate".to_string()],
+        }
     }
 
     fn flow(id_hint: u16) -> Flow {
@@ -876,5 +1028,120 @@ mod tests {
         }
         assert_eq!(parse_protocol("IP(132)"), TransportProtocol::Other(132));
         assert_eq!(parse_protocol("unheard-of"), TransportProtocol::Other(0));
+    }
+
+    #[test]
+    fn findings_round_trip_through_storage() {
+        let db = database();
+        let original = finding(
+            "portScan|10.0.0.5|10.0.0.9",
+            sentinel_detect::Severity::Medium,
+            5_000,
+        );
+        db.upsert_finding(&FindingRecord::new(&original))
+            .expect("write finding");
+
+        let read = db.recent_findings(10).expect("read findings");
+        assert_eq!(
+            read,
+            vec![original],
+            "every field must survive the round trip"
+        );
+    }
+
+    #[test]
+    fn findings_are_ordered_by_severity_then_recency() {
+        let db = database();
+        for (id, severity, last_seen_us) in [
+            ("low-new", sentinel_detect::Severity::Low, 300),
+            ("critical-old", sentinel_detect::Severity::Critical, 100),
+            ("high-new", sentinel_detect::Severity::High, 200),
+        ] {
+            db.upsert_finding(&FindingRecord::new(&finding(id, severity, last_seen_us)))
+                .expect("write finding");
+        }
+
+        let order: Vec<String> = db
+            .recent_findings(10)
+            .expect("read")
+            .into_iter()
+            .map(|finding| finding.id)
+            .collect();
+        assert_eq!(order, ["critical-old", "high-new", "low-new"]);
+    }
+
+    #[test]
+    fn a_second_upsert_keeps_the_worse_severity_and_the_earlier_first_seen() {
+        let db = database();
+        let serious = finding("shared", sentinel_detect::Severity::High, 5_000);
+        db.upsert_finding(&FindingRecord::new(&serious))
+            .expect("first write");
+
+        let mut quieter = finding("shared", sentinel_detect::Severity::Low, 9_000);
+        quieter.first_seen_us = 7_000;
+        quieter.occurrences = 1;
+        db.upsert_finding(&FindingRecord::new(&quieter))
+            .expect("second write");
+
+        let read = db.recent_findings(1).expect("read").remove(0);
+        assert_eq!(
+            read.severity,
+            sentinel_detect::Severity::High,
+            "a quieter observation must not bury the serious one"
+        );
+        assert_eq!(
+            read.first_seen_us, 1_000,
+            "first_seen_us is when the behaviour started, not when it was rewritten"
+        );
+        assert_eq!(
+            read.occurrences, 3,
+            "occurrences never go backwards on an upsert"
+        );
+        assert_eq!(read.last_seen_us, 9_000);
+    }
+
+    #[test]
+    fn a_second_upsert_keeps_the_higher_confidence() {
+        let db = database();
+        let mut certain = finding("shared", sentinel_detect::Severity::High, 5_000);
+        certain.confidence = sentinel_detect::Confidence::High;
+        db.upsert_finding(&FindingRecord::new(&certain))
+            .expect("first write");
+
+        // A later session sees the same behaviour but is less sure. Certainty is not something
+        // that should decay just because a new process had less evidence.
+        let mut unsure = finding("shared", sentinel_detect::Severity::High, 9_000);
+        unsure.confidence = sentinel_detect::Confidence::Low;
+        db.upsert_finding(&FindingRecord::new(&unsure))
+            .expect("second write");
+
+        let read = db.recent_findings(1).expect("read").remove(0);
+        assert_eq!(
+            read.confidence,
+            sentinel_detect::Confidence::High,
+            "confidence must escalate and never de-escalate on an upsert"
+        );
+    }
+
+    #[test]
+    fn a_finding_with_an_unreadable_identifier_is_reported_not_defaulted() {
+        let db = database();
+        db.conn
+            .execute(
+                "INSERT INTO findings (
+                     id, kind, severity, severity_rank, confidence, title, detail,
+                     source, destination, first_seen_us, last_seen_us, occurrences,
+                     evidence_json, advice_json, updated_at_us
+                 ) VALUES ('x', 'somethingNew', 'high', 3, 'high', 't', 'd',
+                           NULL, NULL, 1, 2, 1, '[]', '[]', 0)",
+                [],
+            )
+            .expect("insert");
+
+        let error = db.recent_findings(10).expect_err("must not be accepted");
+        assert!(
+            matches!(error, StorageError::Corrupt(_)),
+            "an unknown kind must fail loudly, got {error:?}"
+        );
     }
 }

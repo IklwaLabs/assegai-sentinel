@@ -17,7 +17,7 @@ use crate::error::{Result, StorageError};
 /// The first schema version this build understands.
 pub const MIN_SUPPORTED_VERSION: u32 = 1;
 /// The schema version this build produces.
-pub const TARGET_VERSION: u32 = 2;
+pub const TARGET_VERSION: u32 = 3;
 
 /// One migration: a version number, a name, and the SQL to apply.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +41,11 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 2,
         name: "0002_protocol_totals",
         sql: include_str!("../migrations/0002_protocol_totals.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "0003_findings",
+        sql: include_str!("../migrations/0003_findings.sql"),
     },
 ];
 

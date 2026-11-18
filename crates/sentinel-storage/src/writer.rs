@@ -10,12 +10,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 use std::thread::JoinHandle;
 
+use sentinel_detect::Finding;
 use sentinel_flow::aggregate::TrafficSample;
 use sentinel_flow::flow::Flow;
 
 use crate::db::Database;
 use crate::error::Result;
-use crate::schema::{FlowRecord, InterfaceRecord, ProtocolTotalRecord};
+use crate::schema::{FindingRecord, FlowRecord, InterfaceRecord, ProtocolTotalRecord};
 use crate::statements;
 
 /// Something the writer can persist.
@@ -29,6 +30,8 @@ pub enum WriteItem {
     Interface(InterfaceRecord),
     /// A protocol total snapshot.
     ProtocolTotal(ProtocolTotalRecord),
+    /// A detection finding.
+    Finding(Box<Finding>),
     /// A key/value setting.
     Setting {
         /// Setting key.
@@ -46,6 +49,8 @@ pub enum WriteItem {
         flows_cutoff_us: Option<u64>,
         /// Delete samples older than this timestamp; `None` keeps everything.
         samples_cutoff_us: Option<u64>,
+        /// Delete findings last seen before this timestamp; `None` keeps everything.
+        findings_cutoff_us: Option<u64>,
     },
 }
 
@@ -335,10 +340,14 @@ fn write_item(conn: &rusqlite::Connection, item: &WriteItem) -> Result<()> {
         WriteItem::TrafficSample(sample) => statements::upsert_traffic_sample(conn, sample),
         WriteItem::Interface(record) => statements::upsert_interface(conn, record),
         WriteItem::ProtocolTotal(record) => statements::upsert_protocol_total(conn, record),
+        WriteItem::Finding(finding) => {
+            statements::upsert_finding(conn, &FindingRecord::new(finding))
+        }
         WriteItem::Setting { key, value } => statements::upsert_setting(conn, key, value),
         WriteItem::Retention {
             flows_cutoff_us,
             samples_cutoff_us,
+            findings_cutoff_us,
         } => {
             if let Some(cutoff) = flows_cutoff_us {
                 let removed = statements::delete_flows_before(conn, *cutoff)?;
@@ -357,6 +366,16 @@ fn write_item(conn: &rusqlite::Connection, item: &WriteItem) -> Result<()> {
                         rows = removed,
                         cutoff_us = cutoff,
                         "retention removed traffic samples"
+                    );
+                }
+            }
+            if let Some(cutoff) = findings_cutoff_us {
+                let removed = statements::delete_findings_before(conn, *cutoff)?;
+                if removed > 0 {
+                    tracing::info!(
+                        rows = removed,
+                        cutoff_us = cutoff,
+                        "retention removed findings"
                     );
                 }
             }

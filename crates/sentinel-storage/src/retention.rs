@@ -20,6 +20,8 @@ pub struct CleanupReport {
     pub flows_removed: u64,
     /// Traffic sample rows deleted.
     pub samples_removed: u64,
+    /// Finding rows deleted.
+    pub findings_removed: u64,
     /// Whether anything at all was removed.
     pub ran: bool,
 }
@@ -28,15 +30,15 @@ impl CleanupReport {
     /// True when the pass removed nothing.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.flows_removed == 0 && self.samples_removed == 0
+        self.flows_removed == 0 && self.samples_removed == 0 && self.findings_removed == 0
     }
 
     /// One-line summary for logs and the CLI.
     #[must_use]
     pub fn summary(&self) -> String {
         format!(
-            "retention removed {} flows and {} traffic samples",
-            self.flows_removed, self.samples_removed
+            "retention removed {} flows, {} traffic samples and {} findings",
+            self.flows_removed, self.samples_removed, self.findings_removed
         )
     }
 }
@@ -45,6 +47,7 @@ impl CleanupReport {
 pub struct RetentionJob {
     flows_cutoff: Option<u64>,
     samples_cutoff: Option<u64>,
+    findings_cutoff: Option<u64>,
     last_run_us: Option<u64>,
     interval_us: u64,
 }
@@ -59,6 +62,10 @@ impl RetentionJob {
         Self {
             flows_cutoff: cutoff(config.retention.flows, now_us),
             samples_cutoff: cutoff(config.retention.traffic_samples, now_us),
+            // Findings follow the flow period rather than the sample period. They are
+            // event-like records, not chart data: keeping a finding for a week after the flow
+            // that caused it was deleted would leave an alert with no supporting evidence.
+            findings_cutoff: cutoff(config.retention.flows, now_us),
             last_run_us: None,
             interval_us: 3_600_000_000, // hourly
         }
@@ -81,6 +88,12 @@ impl RetentionJob {
     #[must_use]
     pub const fn samples_cutoff(&self) -> Option<u64> {
         self.samples_cutoff
+    }
+
+    /// Cutoff for finding rows, when retention is finite.
+    #[must_use]
+    pub const fn findings_cutoff(&self) -> Option<u64> {
+        self.findings_cutoff
     }
 
     /// True when enough time has passed since the last run.
@@ -132,11 +145,15 @@ impl RetentionJob {
         if let Some(cutoff) = self.samples_cutoff {
             report.samples_removed = database.delete_samples_before(cutoff)?;
         }
+        if let Some(cutoff) = self.findings_cutoff {
+            report.findings_removed = database.delete_findings_before(cutoff)?;
+        }
 
         if !report.is_empty() {
             tracing::info!(
                 flows = report.flows_removed,
                 samples = report.samples_removed,
+                findings = report.findings_removed,
                 "retention cleanup applied"
             );
         }
@@ -211,6 +228,24 @@ mod tests {
         }
     }
 
+    fn finding(age_seconds: u64, index: usize) -> sentinel_detect::Finding {
+        sentinel_detect::Finding {
+            id: format!("portScan|10.0.0.5|10.0.0.{index}"),
+            kind: sentinel_detect::FindingKind::PortScan,
+            severity: sentinel_detect::Severity::Medium,
+            confidence: sentinel_detect::Confidence::High,
+            title: "Port scan".to_string(),
+            detail: "detail".to_string(),
+            source: Some("10.0.0.5".parse().expect("valid")),
+            destination: Some(format!("10.0.0.{index}").parse().expect("valid")),
+            first_seen_us: NOW - age_seconds * 1_000_000,
+            last_seen_us: NOW - age_seconds * 1_000_000,
+            occurrences: 1,
+            evidence: Vec::new(),
+            advice: Vec::new(),
+        }
+    }
+
     #[test]
     fn cutoffs_follow_the_configured_period() {
         let job = RetentionJob::from_config(
@@ -219,6 +254,11 @@ mod tests {
         );
         assert_eq!(job.flows_cutoff(), Some(NOW - 86_400 * 1_000_000));
         assert_eq!(job.samples_cutoff(), Some(NOW - 604_800 * 1_000_000));
+        assert_eq!(
+            job.findings_cutoff(),
+            job.flows_cutoff(),
+            "findings are event records and follow the flow period"
+        );
     }
 
     #[test]
@@ -290,6 +330,9 @@ mod tests {
                     ..TrafficSample::default()
                 })
                 .expect("write sample");
+            database
+                .upsert_finding(&crate::schema::FindingRecord::new(&finding(*age, index)))
+                .expect("write finding");
         }
 
         let job = RetentionJob::from_config(
@@ -303,9 +346,14 @@ mod tests {
             "only the 31-day-old flow is past the cutoff"
         );
         assert_eq!(report.samples_removed, 1);
+        assert_eq!(
+            report.findings_removed, 1,
+            "findings follow the flow period, so only the oldest is removed"
+        );
         assert!(report.ran);
         assert!(!report.is_empty());
         assert_eq!(database.row_count("flows").expect("count"), 2);
+        assert_eq!(database.row_count("findings").expect("count"), 2);
     }
 
     #[test]
