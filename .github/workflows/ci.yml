@@ -185,7 +185,8 @@ jobs:
       - name: Regenerate and verify
         run: |
           cargo run -p sentinel-fixtures -- fixtures/demo-traffic.pcap
-          git diff --exit-code -- fixtures/demo-traffic.pcap
+          cargo run -p sentinel-fixtures -- fixtures/detection-traffic.pcap --detections
+          git diff --exit-code -- fixtures/demo-traffic.pcap fixtures/detection-traffic.pcap
 
   site:
     name: Download page is current

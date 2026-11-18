@@ -19,3 +19,6 @@ sentinel-parser.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+sentinel-capture.workspace = true
+sentinel-common.workspace = true
+sentinel-core.workspace = true
